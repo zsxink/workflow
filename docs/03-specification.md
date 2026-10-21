@@ -20,15 +20,19 @@ Markdown 是语义内容的唯一来源。可生成 JSON 索引缓存，但缓�
 
 - change/capability/module：小写 kebab-case，禁止路径分隔、`.`、`..`、控制字符和大小写碰撞。
 - requirement：`REQ-<CAPABILITY>-<NNN>`；例如 `REQ-SESSION-001`。逻辑项目内唯一，删除后不能复用。
-- scenario：`SCN-<CAPABILITY>-<NNN>-<NN>`，归属单个 requirement。
+- scenario：`SCN-<CAPABILITY>-<NNN>-<NN>`，归属单个 requirement；删除后不能复用，也不能迁移到另一 requirement。
 - task：`TASK-001`，在当前 change 内唯一；跨 change 用 `<change>#TASK-001`。
 - 长期规则：`RULE-001`。各类 ID 不能由文件行号、排序位置或标题计算。
+
+change ID 在活动变更和归档历史中唯一；归档后不得用于新变更。reopen 是恢复原 change，不是复用 ID。
 
 标题调整保留 ID。需求拆分/合并通过显式 REMOVE + ADD，并在理由中给出替代 ID。V1 无隐式重命名匹配或模糊文本合并。
 
 ## 3. 元数据
 
 `change.yaml` 示例见 [样例](../examples/change/change.yaml)。必要字段：formatVersion、id、title、modules、dependsOn。可选 tracking 对象为 `{provider, itemId}`，引用独立项目管理连接；是否必需由 tracking.required 决定，与 integration.profile 无关。来源身份、内容快照和变化处理见 [事项适配](15-tracking-adapters.md)。未知字段在 strict 校验中报错，扩展只能放 `extensions` 命名空间。
+
+`dependsOn` 是同一逻辑项目内的 change ID 数组，允许空数组；不得重复、自引用、形成环或引用缺失的活动/归档变更。执行依赖的满足条件是对应 profile 下已核实的集成事实，归档目录存在或 run succeeded 不等于满足。未满足时可准备草案，禁止派发实现和集成；重新基线不能移除依赖以绕过该条件。
 
 规格 front matter：
 
@@ -62,13 +66,17 @@ capability: session
 
 delta 用 `## ADD REQ-... — 标题`、`## UPDATE REQ-... — 标题`、`## REMOVE REQ-... — 标题` 表示操作。ADD/UPDATE 必须提供完整的新 requirement 内容和至少一个场景；UPDATE 按 ID 替换完整块，不做句子级补丁。REMOVE 必须给出 Reason 与 Impact 字段，不带有效场景块。
 
+UPDATE 中未保留的旧 scenario 必须逐项列入 `- Removed-Scenarios: <ID>, ...`，无删除写 none；每个删除另写 `- Removal-Reason: <ID> — <理由>`。漏列、列入仍保留的 ID 或复用历史 ID 均拒绝，防止完整块替换静默删除场景。REMOVE requirement 同时移除其全部 scenario。同步计划列出其他活动 change 对被删除 requirement/scenario 的引用；有引用时 integration gate 阻断，先修订引用方并使其审批/验证失效，再重新生成计划，不级联改写其他变更。
+
 同一 capability 中一个 ID 一次变更只能有一个操作。ADD 目标必须不存在；UPDATE/REMOVE 目标必须存在。已归档 ID 的重用检查包含归档 tombstone 索引。没有行为变化的 docs/infra 变更允许零 delta，但 proposal 必须说明，spec-gate 记录适用性判断。
 
 ## 5. 场景与可测试性
 
-每个有效 requirement 至少一个场景。场景必须有 WHEN、THEN，GIVEN 可选；各字段至少一个非空条目。AND 为同一个字段的续行，具体词法由 parser fixtures 固定；V1 以示例的独立列表行为基线。
+每个有效 requirement 至少一个场景。场景必须有 WHEN、THEN，GIVEN 可选；每个场景按 GIVEN（可选）→ WHEN → THEN 排列，各关键字最多出现一次且内容非空；AND 追加到最近的字段，首行不得为 AND。多项条件/动作/结果分别形成对应字段的有序条目，不表示分支或并发。parser fixtures 固定空白与列表词法。
 
-解析器检查结构与 ID，不能证明期望正确。审查者检查是否可观察、边界是否遗漏以及是否与长期规则冲突。尚未解决的问题必须列入 proposal 的 Open questions 并标 unresolved；spec-gate 不接受影响行为的 unresolved 项。
+解析器检查结构与 ID，不能证明期望正确。审查者检查是否可观察、边界是否遗漏以及是否与长期规则冲突。proposal 的 Open questions 使用 `- QUESTION-001 | unresolved|resolved | behavior|non-behavior | <问题及处理依据>`（status/type 各选一个值）；无问题写 `none`。resolved 项须引用决策证据；spec-gate 不接受 behavior 类型的 unresolved 项，不能仅靠改标签消除行为歧义。
+
+proposal 的 Rules 小节使用 `- RULE-001: <本次如何满足及验证引用>`，无适用规则写 `none` 并说明理由。ID 必须命中 rules.md 的 `## RULE-001 — <标题>`；spec-gate 检查重复/悬空引用及所有适用规则是否已有处置，是否适用及语义符合仍由主会话与独立审查核对，不声称 parser 自动理解规则。
 
 ## 6. 任务格式和追踪
 
@@ -131,3 +139,13 @@ Tester 生成 `scenario → task → verification evidence` 映射，标记 auto
 ## 10. 导入与兼容
 
 未来 importer 可把旧 OpenSpec/Spec Kit 文档转成自研格式，输出映射和需要确认的缺项。V1 不自动扫描并改造旧目录；不同时维护两份规格来源；原始目录仅作为导入输入，显式确认转换后再切换权威根。
+
+## 11. 历史索引与重新基线
+
+历史索引位于 `.workflow/specs/history.json`，是从不可变归档元数据重建的派生索引，不能独立编辑。格式为 `{formatVersion: 1, changes: [...], removed: [...]}`；changes 项含 changeId、archivePath、transactionId、archiveMetadataHash；removed 项含 kind（requirement/scenario）、id、capability、parentRequirementId（requirement 时为 null）、changeId、transactionId、reason。归档元数据保存相同的 ID 登记与删除记录，索引与归档不一致时拒绝门禁并要求重建/恢复；不得选择更宽松的一份。两者随同一归档事务提交。reopen 只撤销原事务的登记，旧 journal 保留，原 change 身份仍不可用于另一变更。
+
+零 delta 的同步计划输出空规格写集，不生成虚构 baseHash；仍登记 change 历史并归档，正式规格及 removed 集合不变。最终检查核对空写集及变更登记事实。
+
+`workflow change rebaseline <change>` 默认只读：以原 baseHash 对应的旧规格、当前正式规格及 delta 投影生成三方冲突计划；旧内容须从固定 Git 对象或原始快照取得并验证摘要，缺失时拒绝，不能猜测。resolution 文件使用 `{formatVersion: 1, planId, deltas: [{capability, content, resolvedConflicts: [{id, rationale}]}]}`，content 为完整 delta 文本；capability 必须命中计划，路径由引擎从 capability 推导，不接受任意目标路径。解析并检查新 delta 对当前规格的完整投影及历史 ID 后才应用。V1 不做句子级自动合并。同 requirement/scenario 的双边修改、删除/引用冲突均列为显式冲突。主会话在授权范围内准备完整新 delta，`--apply --plan-id <id> --resolution <file>` 在重新核对旧/当前摘要、owner/revision 后事务写入新 delta 与 baseHash；无冲突也需显式 apply，不得只覆盖摘要。rebaseline 不改正式规格或 Git 引用；spec/plan 变化使审批及相关下游证据失效，重新经过 spec-gate。原基线内容摘要及决策保留在证据中。
+
+reopen 若被后续事务输出阻挡，不允许强制覆盖。诊断列出阻挡事务与逐路径差异；仅对仍未集成且可逐个证明输出匹配的后续事务，按逆序分别 reopen 后重试。已集成或存在外部编辑时保留现场，通过新 change 修订；不能以删除锁/索引解冲突。

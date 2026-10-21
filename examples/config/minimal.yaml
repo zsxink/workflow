@@ -26,6 +26,7 @@ validation:
   commands:
     - id: app-session-test
       executable: npm
+      envAllowlist: [PATH]
       args: [test, --, tests/session]
       cwd: .
       timeoutSeconds: 300
@@ -33,6 +34,7 @@ validation:
       artifacts: [coverage/**]
     - id: app-test
       executable: npm
+      envAllowlist: [PATH]
       args: [test]
       cwd: .
       timeoutSeconds: 300
@@ -40,6 +42,7 @@ validation:
       artifacts: [coverage/**]
     - id: app-build
       executable: npm
+      envAllowlist: [PATH]
       args: [run, build]
       cwd: .
       timeoutSeconds: 300

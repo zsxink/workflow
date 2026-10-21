@@ -2,7 +2,7 @@
 
 ## 1. 适配范围
 
-首批优先适配 Codex、Claude Code、OpenCode、pi，配置 ID 分别为 codex、claude、opencode、pi。当前只定义工程契约，尚未完成四个宿主的真实安装和执行验收；具体发现路径、注册字段及权限机制在实施时按宿主版本固定。首批目标不等于已验证支持。
+优先适配 Codex、Claude Code，自用项目先试点；OpenCode、pi 为后续适配目标。配置 ID 分别为 codex、claude、opencode、pi。当前只定义工程契约，尚未完成四个宿主的真实安装和执行验收；具体发现路径、注册字段及权限机制在实施时按宿主版本固定。优先适配目标不等于已验证支持。
 
 宿主适配包括入口生成、角色注册、能力声明和诊断，不通过外部 Agent CLI 适配模型运行时。主会话是 Leader，不派第二个 Leader 子 Agent，不为每个宿主复制整份阶段协议。
 
@@ -23,7 +23,7 @@ Node.js CLI 用于规格、状态、测试命令、事务、安装和仓库操�
 
 允许宿主入口调用确定性 Workflow CLI；该调用不启动 Agent。若所需原生派发、结果关联或角色权限不能满足，报告 unknown/unsupported 并停在相应门禁，不降级为外部进程编排，不把缺能力当作角色已完成。
 
-## 3. 首批宿主的机制核查
+## 3. 目标宿主的机制核查
 
 2026-10-21 的官方资料核查仅用于候选机制，未运行四宿主验收：
 
@@ -76,8 +76,14 @@ readOnlyIsolation, scopedWriteIsolation, cancellation
 
 ## 7. 共同验收
 
-四个宿主共用“同规格、同任务、同阶段输出”的契约 fixture，分别验证注册、找到本地 runtime、主会话原生派发、真实身份关联、等待/结果回传、只读角色、失败与恢复。真实宿主不可用时明确 blocked/unverified，模拟 fixture 只能证明模板与协议，不证明真实宿主能力。
+目标宿主共用“同规格、同任务、同阶段输出”的契约 fixture，优先验收 Codex、Claude Code；OpenCode/pi 在后续适配时执行同一标准。分别验证注册、找到本地 runtime、主会话原生派发、真实身份关联、等待/结果回传、只读角色、失败与恢复。真实宿主不可用时明确 blocked/unverified，模拟 fixture 只能证明模板与协议，不证明真实宿主能力。
 
 验收必须确认 Workflow CLI/模板/扩展未通过进程、RPC 或 SDK 包装器另启 Agent。还应覆盖派发失败、能力禁用、结果无法关联、中断后的子 Agent 活性不明和权限不足等拒绝路径。四宿主逐项记录 install-supported、native-dispatch-verified、role-isolation-verified 和 execution-verified；不能用一个宿主的成功替其他宿主背书。
 
 宿主功能变化后需要更新版本支持表并回归；工具不能从产品名称推断永久能力。发行说明按宿主逐项列 install-supported 与 execution-verified 状态。
+
+## 8. 门禁强制范围
+
+CLI 可拒绝为缺失/失效证据推进状态、执行归档和集成；它不控制宿主全部工具，不能阻止主会话绕过 CLI 直接写文件或调用 Git，也不防御恶意本地主机篡改状态。宿主权限隔离是另一层能力，须逐角色、逐通道核查文件工具、shell、MCP/连接器和扩展，hook 只能在已验证覆盖面内辅助拦截和审计。未配置 hook 不等于 CLI 无确定性门禁；安装一个 hook 也不等于全通道隔离。
+
+Claude Code 的 tools 白名单是只读角色的候选实现；固定角色分发形态、前台/后台模式及宿主版本后，验证未列工具和所有旁路写通道被拒绝，才可报告 readOnlyIsolation=supported。Skill 预授权不能替代能力限制。原生 worktree 必须核对实际起点等于 bootstrap 固定 SHA；不依赖任何宿主默认分支设置。Codex/OpenCode/pi 继续按具体版本留证，缺只读能力保持门禁阻断，不自动把 Reviewer 改成 audit-only。用户已确认 Codex/Claude Code 优先、OpenCode/pi 后续适配，并保持严格 Reviewer 要求；见综合复核第 13 节。

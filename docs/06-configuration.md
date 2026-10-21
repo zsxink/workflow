@@ -1,6 +1,6 @@
 # 项目配置契约
 
-配置位于 `.workflow/config.yaml`，示例见 [最小配置](../examples/config/minimal.yaml) 和 [GitHub 配置](../examples/config/github.yaml)。当前为设计契约，尚无解析器实现。
+配置位于 `.workflow/config.yaml`，示例见 [最小配置](../examples/config/minimal.yaml) 和 [GitHub 配置](../examples/config/github.yaml)。受限预览已实现严格解析；有效配置不代表对应远端或宿主能力已可执行，参见 [实现记录](17-implementation.md)。
 
 ## 1. 基本字段
 
@@ -21,7 +21,9 @@
 | tracking.providers | 项目管理连接列表，默认空；每项有 id、adapter 和厂商命名空间配置 |
 | validation.commands | 命令定义：ID、argv、cwd、timeout、模块与产物白名单 |
 | validation.extraSourceInputs | 额外纳入指纹的 ignored 文件，默认空 |
-| policy | 重试、CR 上限、Epic 并发、远端动作策略 |
+| policy | retryLimit、crRoundLimit、epicConcurrency、requireScopedWriteIsolation；远端动作以 integration.mode 和 run 授权为准 |
+| policy.requireScopedWriteIsolation | boolean，默认 false；true 时写角色必须具备已核实的 scopedWriteIsolation，否则挂起；false 仅允许披露为 audit-only 的范围保障，不降低 Reviewer 只读要求 |
+| policy.epicConcurrency | 正整数，默认 3，仅限制 Epic 就绪任务并发，不授权重叠文件写入 |
 | extensions | 预留命名空间；其余未知键 strict 报错 |
 
 `integration.mode: prepare` 只准备归档/提交/集成计划；执行变更时主会话可在已获得授权后记录 run 级有效策略并推进，不能因配置值自动推断用户同意。integration.github 字段只在 github profile 校验为必需。tracking 的 github 连接独立校验，local profile 也可配置；integration.github.repository 不作为事项仓库默认值。
@@ -50,9 +52,13 @@ modules:
 
 命令按配置顺序串行是 V1 默认。并行 lane 为后续优化，不能根据 backend/frontend 名称自动推导。环境透传使用显式 allowlist；日志不打印变量值。
 
+预览实现的 `validation.commands[].envAllowlist` 默认 `[]`，运行 npm 等依赖 PATH 的命令应显式声明 `[PATH]`。执行器以 argv 直接启动，截断日志仍保留完整原始流摘要，按敏感环境变量名称识别的值做脱敏。它不是进程/文件系统沙箱，不能证明配置脚本不间接启动其他程序。Windows `.cmd/.bat` 执行暂不支持；未完成 Windows 验收。
+
 本次变更必须从已声明命令中形成明确的适用命令集，并将“适用/不适用/手工验收”及理由写入验证计划和运行证据。命令可声明稳定的 `modules` 与产物白名单；项目可把不变量检查脚本作为命令登记。引擎不内置 `npm`、`cargo`、特定测试框架或项目目录判断，也不允许以空命令集隐式通过。
 
 `policy.retryLimit` 默认为 2，表示首次尝试之后同一问题允许的重试/修复次数；`policy.crRoundLimit` 默认为 3，表示同一变更实现修复链的 CR 总轮数。归档后的首次最终审查是独立门禁，修复后的实现复审继续计入原 CR 轮次；最终门禁失败后的再次执行受 retryLimit 约束。额度跨恢复、重新归档和同 change 的后继 run 继承。达到上限进入 suspended，只有明确的新用户决策可追加额度，新建 run 本身不提供新额度。
+
+CI 映射是验证计划证据而非未声明的 config 顶层字段。记录格式为 `{status: mapped|not-applicable, rationale, entries: [...]}`；每项含 workflowPath、workflowHash、jobId、conditions、runner、toolVersions、setupSteps、requiredEnvNames、commandIds、execution（local/remote-required）。commandIds 必须命中声明命令；仅远端执行项可为空，但须有远端检查标识及理由。无 CI 时 entries 为空并说明依据；不接受环境变量明文值。
 
 验证计划还应核对项目现有 CI：记录 workflow 文件摘要、job 条件、运行器/工具版本、安装步骤、系统依赖、必要环境变量名与对应 command IDs。项目提供映射，主会话和独立审查者核对完整性；V1 不宣称自动理解任意 CI 配置。无 CI 的项目记录 not-applicable。本地适用命令缺依赖时先准备环境或标为 blocked，不得改成 skip；由项目策略明确只在远端执行的检查单列 remote-required，留给 wait-required-ci 检查，不能算作本地已通过。CI 文件或命令/依赖变化须重选计划并使相关证据失效。
 

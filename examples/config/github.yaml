@@ -33,6 +33,7 @@ validation:
   commands:
     - id: service-test
       executable: npm
+      envAllowlist: [PATH]
       args: [test]
       cwd: .
       timeoutSeconds: 300

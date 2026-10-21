@@ -4,7 +4,7 @@
 
 采用 TypeScript + ESM。目标 Node.js 22.12+，使用系统 Git。运行依赖优先采用 Node 内建能力，YAML/Markdown 使用小型解析器，避免自制不完整解析器；具体库通过实现阶段的体积、维护状态与许可证检查确定。V1 不建立 monorepo、多包发布或公共插件 SDK。
 
-以下是实施后的目标源码结构；当前仓库并未实现这些目录。
+以下是完整目标源码结构；已实现模块及当前 CLI 范围见 [实现记录](17-implementation.md)，不能仅凭目录存在认定模块全部交付。
 
 ```text
 workflow/
@@ -89,8 +89,10 @@ tracking 与 repository 互不依赖，均由应用层编排；共享必要的 H
 │   ├── config.yaml                 # 项目配置，提交
 │   ├── rules.md                    # 项目长期约束，提交
 │   ├── install.json                # 固定版本与管理摘要，提交
+│   ├── managed-bases/sha256/       # 安装三方比较原内容，提交
 │   ├── managed/                    # 安装包生成的角色/协议/模板，提交
 │   ├── runtime/                    # 固定版本本地 CLI 产物，提交
+│   ├── specs/history.json          # 由归档重建的历史索引，提交
 │   ├── specs/<capability>/spec.md   # 正式行为规格，提交
 │   ├── changes/<change>/           # 活动变更，提交
 │   ├── archive/<date>-<change>/     # 归档，提交

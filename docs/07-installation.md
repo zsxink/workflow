@@ -6,6 +6,8 @@
 
 目标 Node.js 22.12+、Git。V1 以 npm 安装为主，不同时维护 Homebrew、独立二进制或下载脚本。普通依赖在构建/安装时锁定，分发产物包含所需运行模块和 notices；目标仓使用包后不再调用 npx 下载规格或状态工具。
 
+用户已确认保留随仓提交固定 runtime 的分发方案；首轮以自用项目接入为先，不因试点绕过安装/升级安全契约。
+
 ## 2. 两级版本
 
 全局安装提供初始化/升级入口。`init` 将该版本 runtime 及协议物化到目标项目 `.workflow/runtime/` 和 `.workflow/managed/`，提交这些文件和 `install.json`。宿主入口只使用项目本地 runtime，保证 fresh clone 在具备 Node/Git 后能离线读取及执行该版本。
@@ -23,13 +25,13 @@
 
 普通文件夹只允许计划或生成非执行草案；需要实际执行时要求 Git 仓库，init 不擅自创建远端、不安装 Agent 产品、不创建 GitHub Issue。
 
-首批宿主 ID 为 codex、claude、opencode、pi，按项目选择物化入口，避免要求同时安装四个产品。安装器不启动这些宿主或安装外部子 Agent runner；宿主扩展依赖如未核实，只报告缺项，不能自动装扩展代替原生能力。doctor 分开报告入口存在、原生派发机制和实际角色隔离，尤其不能由 pi 扩展示例存在推断执行就绪。
+优先宿主 ID 为 codex、claude，opencode、pi 保留为后续适配 ID；仅对当前版本已交付的 adapter 按项目选择物化入口，未交付目标返回 unsupported，不生成虚假可用入口。避免要求同时安装四个产品。安装器不启动这些宿主或安装外部子 Agent runner；宿主扩展依赖如未核实，只报告缺项，不能自动装扩展代替原生能力。doctor 分开报告入口存在、原生派发机制和实际角色隔离，尤其不能由 pi 扩展示例存在推断执行就绪。
 
 ## 4. install manifest
 
 至少记录 formatVersion、packageVersion、assetFormatVersion、runtimeSha256、安装时间、宿主列表，以及每个 managed path 的 sourceTemplateId、installedHash、baseContentHash 与 mode。
 
-base 内容保留在项目本地管理缓存，升级才能以“旧模板 / 现有文件 / 新模板”三方比较。用户配置、rules、规格和任务永远列为 user-owned，不能因名称一致被认领为可覆盖资产。
+base 内容按内容摘要保存在随安装提交的 `.workflow/managed-bases/sha256/<hash>.json`，格式为 `{formatVersion: 1, encoding: "base64", sha256, content}`，hash/sha256 均针对解码后的原始模板字节；读取时解析 JSON、解码再核验摘要，不以工作树 JSON 的换行计算模板摘要，避免 autocrlf 改变模板原始内容。缓存不可手改；此目录自身不递归进入 managed 模板列表。fresh clone 后必须验证摘要，缺失/损坏时拒绝自动合并，不从当前用户文件推断旧模板。升级据此以“旧模板 / 现有文件 / 新模板”三方比较。用户配置、rules、规格和任务永远列为 user-owned，不能因名称一致被认领为可覆盖资产。
 
 ## 5. 幂等与升级
 

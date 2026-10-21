@@ -4,13 +4,13 @@
 
 ## 当前阶段
 
-当前为设计文档阶段。`src/`、CLI、安装器及宿主执行能力尚未实现；示例命令不得描述成已可运行。后续代码应按 [实施计划](docs/10-roadmap.md) 分阶段交付。
+当前为受限预览实施阶段。`src/` 已包含规格、状态/事务、工作流领域及安装器，部分 CLI 可运行；真实宿主、完整归档/集成闭环仍未验收，不能宣称已支持。实际能力见 [实现记录](docs/17-implementation.md)，后续按 [实施计划](docs/10-roadmap.md) 分阶段交付。
 
 ## 产品与架构约束
 
 - 规格规范及引擎自行实现，OpenSpec、Spec Kit 仅为设计参考。不得将其 CLI、运行时、源码内嵌或 provider 作为默认实现。
 - 不引入 MusicTag 的产品约束、目录、角色、cargo/npm 验证基线或专用回归维度。
-- 单个版本化安装包；首批宿主为 Codex、Claude Code、OpenCode、pi。当前主会话直接使用宿主原生子 Agent，不由 Workflow 的 Node.js/脚本、模型 SDK 或 RPC 驱动另启角色，也不得以 `codex exec`、`claude -p`、`opencode run`、pi 打印模式或其他 Agent CLI 替代。
+- 单个版本化安装包；优先宿主为 Codex、Claude Code，自用项目先试点；OpenCode、pi 后续适配。当前主会话直接使用宿主原生子 Agent，不由 Workflow 的 Node.js/脚本、模型 SDK 或 RPC 驱动另启角色，也不得以 `codex exec`、`claude -p`、`opencode run`、pi 打印模式或其他 Agent CLI 替代。
 - 规格为版本化 Markdown 文档；机器状态为 JSON；运行进度 Markdown 是生成视图，避免双状态源。
 - 业务规格、设计和项目策略变化必须使相关审批、审查和验证失效。
 - 流程约束由确定性代码检查，提示词不能代替权限隔离。

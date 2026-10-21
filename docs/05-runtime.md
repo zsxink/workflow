@@ -10,11 +10,13 @@
 
 ## 2. 锁与所有权
 
-按主仓逻辑 ID + change ID 建独占锁，另有安装锁、规格库写锁与 Epic 调度锁。锁记录 owner 随机标识、宿主会话、机器标识、进程事实、开始时间和 heartbeat。PID/heartbeat 只能辅助诊断，不能单独证明跨宿主 Agent 已停止。
+按主仓逻辑 ID + change ID 建独占锁，另有安装锁、规格库写锁与 Epic 调度锁。锁记录 owner 随机标识、宿主会话、机器标识、进程事实、开始时间和 heartbeat。PID/heartbeat 只能辅助诊断，不能单独证明跨宿主 Agent 已停止。heartbeat 由持有 owner 的主会话通过 lock heartbeat 在派发/收集及阶段边界显式刷新；CLI 不假设后台续租服务，也不把过期时间解释为可自动接管。
 
 写命令同时检查 owner 和 revision。所有需要多把锁的操作按 project/install → spec-store → epic → change 的固定顺序获取，不在持有变更锁时反向申请规格库锁。读取 run 后准备写归档时需释放/按序重新取得并复核 revision。
 
 接管要求显式 previous-owner 和无活动写入者的证据，保留 takeover journal。锁创建后状态未写、接管中途崩溃、主会话丢失但子 Agent 仍运行，都必须有独立恢复分支。不能按超时自动删锁，不能只凭主会话已退出就重派文件写入者。
+
+活性恢复逐个核对所有已 attach 的写入 attempt：宿主 terminal/cancel-confirmed 记录、对应会话及进程关联、文件现场摘要。attach 前派发崩溃的未知写入者也必须追查。宿主不能查询时，须由用户在宿主侧结束相关会话/进程并记录操作与可核查停止事实；仅“同意接管”不能替代停止证明。仍无法建立无写入者条件时保持 suspended，说明具体缺项，不提供删锁强行继续。锁已建立但无 state 时，recover 根据锁创建 journal 收敛；接管崩溃按 takeover journal 的原/新 owner 和 revision 幂等恢复。保守挂起是安全限制，不承诺所有宿主均可自动恢复。
 
 ## 3. 指纹组
 
@@ -27,7 +29,7 @@
 
 所有路径相对仓库根，分隔符规范化，UTF-8 字节排序，记录类型及 SHA-256。符号链接只哈希链接目标文本，拒绝通过链接访问项目外文件。大小写碰撞在跨平台校验时报错。
 
-source manifest 从工作树实际文件系统枚举，使用 `git check-ignore --no-index` 的忽略规则及项目明确声明的构建产物排除；Git 元数据、其他 worktree 和 `.workflow/` 中已由其他指纹覆盖的数据不重复纳入。额外必须覆盖的 ignored 文件由 validation.extraSourceInputs 声明；已跟踪但被忽略且未归属其他指纹/产物的文件，配置检查拒绝漏采并要求声明。Git index 仅用于审计，不决定 manifest 路径集合。删除表现为原 manifest 条目消失，删除证据另记 tombstone；相同磁盘内容在 stage/commit 前后必须得到相同 sourceFingerprint。不能按任一路径分量叫 dist/target 就自动排除，避免漏掉真实源目录。
+source manifest 从工作树实际文件系统枚举，只使用仓库边界内实际存在的 .gitignore 规则及项目明确声明的构建产物排除；规则文件按固定路径/层级读取并纳入 policyFingerprint，不按 tracked/index 状态选择，新增规则在 stage 前后保持一致；禁用用户全局 core.excludesFile 和 .git/info/exclude 等本机排除规则，不能直接使用继承本机配置的 `git check-ignore --no-index` 结果；Git 元数据、其他 worktree 和 `.workflow/` 中已由其他指纹覆盖的数据不重复纳入。额外必须覆盖的 ignored 文件由 validation.extraSourceInputs 声明；已跟踪但被忽略且未归属其他指纹/产物的文件，配置检查拒绝漏采并要求声明。Git index 仅用于审计，不决定 manifest 路径集合。删除表现为原 manifest 条目消失，删除证据另记源码差异 tombstone（不等同规格历史索引）；相同磁盘内容在 stage/commit 前后必须得到相同 sourceFingerprint。不能按任一路径分量叫 dist/target 就自动排除，避免漏掉真实源目录。
 
 spec/plan 归一化只允许忽略明确的任务 Status 和展示时间；审批内容、场景、命令参数、路径与约束不能被归一化掉。规格归档的路径变化通过事务记录的 before/after specFingerprint 映射解释，不能泛化为“规格改了也可复用验证”。
 
@@ -41,7 +43,7 @@ Agent 回报证据：原始回报摘要、protocolVersion、run/dispatch/attempt
 
 审查证据另含 reviewBase SHA、完整变更路径 manifest 及逐路径结论。验证计划证据另含适用/跳过判断、项目 CI 映射与环境准备情况；适用但无法执行的检查标为 blocked，不能用不适用掩盖缺依赖。verify-final 独立记录归档 transaction ID、输出校验、最终审查、candidateTree SHA 和归档后命令结果，不能挪用归档前证据充数。
 
-TDD cycle 是 task 内部子状态，保存 cycle ID、实现基线、测试/fixture 摘要、command/环境摘要、Red 失败诊断和接受结论、Green/Refactor 的证据引用及 revision 顺序。步骤从 opened → red-accepted → green-passed → refactor-passed/not-needed 推进；无效 Red、测试内容改变和基线失配保留失败/失效记录，不能直接跳到 Green。业务断言语义由主会话接受、独立审查复核，工具不把任意非零退出码当成有效 Red。恢复按 [TDD 契约](14-tdd-and-delivery.md)核对快照与活性，不补造丢失历史。
+TDD cycle 是 task 内部子状态，保存 cycle ID、模式（new-test/existing-failure）、基线检查证据、实现基线、测试/fixture 摘要、command/环境摘要、Red 失败诊断和接受结论、Green/Refactor 的证据引用及 revision 顺序。步骤从 opened → red-accepted → green-passed → refactor-passed/not-needed 推进；无效 Red、测试内容改变和基线失配保留失败/失效记录，不能直接跳到 Green。业务断言语义由主会话接受、独立审查复核，工具不把任意非零退出码当成有效 Red。恢复按 [TDD 契约](14-tdd-and-delivery.md)核对快照与活性，不补造丢失历史。
 
 事项证据独立于 GitHub PR 证据：记录 adapter/连接摘要、来源 canonicalIdentity、sourceRevision（如有）、内容摘要、获取时间和已接受快照引用；来源原始正文保存在 evidence，默认不提交。刷新、needs-triage 和主会话对语义变化的决策存入 run；仅时间戳或无关状态变化不更新审批语义指纹。tracking 配置修改属于 policyFingerprint 变化；实际身份重绑定不能只改连接别名规避校验。
 
@@ -57,7 +59,7 @@ TDD cycle 是 task 内部子状态，保存 cycle ID、实现基线、测试/fix
 4. 重新核对输出摘要，写 committed 状态和归档/安装元数据。
 5. 更新 run/checkpoint、重建视图，清理 staging。
 
-多文件操作在 OS 层不是真正整体原子。prepared/applying 时该规格库的读写均返回 RECOVERY_REQUIRED，直到恢复收敛为 committed 或 rolled-back。已被外部修改的文件不能自动回滚覆盖；记录冲突并挂起。
+多文件操作在 OS 层不是真正整体原子。prepared/applying 时该规格库的读写均返回 RECOVERY_REQUIRED，直到恢复收敛为 committed 或 rolled-back。阻断限定为该 worktree 内 journal 声明的规格库；其他 worktree 的独立正式规格快照不因此全局失效。共享运行根的事务 journal 必须记录 worktree/store 实际路径，诊断读取 journal、锁和状态仍可用，不能把恢复诊断本身阻断。已被外部修改的文件不能自动回滚覆盖；记录冲突并挂起。
 
 幂等键为 changeId + operation + transactionId；恢复优先查询事务和输出事实。归档已提交而 state 未更新时补 state；state 指成功但输出丢失时拒绝成功。不能重算一个不同计划冒充旧事务重试。
 
@@ -87,6 +89,14 @@ GitHub squash merge 后验证提交可能不再是 main 的祖先，不能单独
 
 ## 8. 版本与保留
 
-配置、规格、runtime、install manifest 分别有格式版本。未知 major 只读并提示迁移。迁移需计划、原文件保护、journal 与 fixtures。升级期间有活动 run 时，默认阻止替换 runtime；先结束/挂起并验证无写入者，必要迁移再显式应用。
+配置、规格、runtime、install manifest 分别有格式版本。未知 major 只读并提示迁移。迁移需计划、原文件保护、journal 与 fixtures。run 固定 runtime 版本、runtimeSha256 及状态格式版本；每个写命令核对调用 runtime 与所属 run 一致，跨 worktree 不能用另一份本地 runtime 解释并写入该 run。共享锁/journal 含格式版本，遇到未知 major 只允许安全诊断，不尝试改写。升级期间有活动 run 时，默认阻止替换 runtime；先结束/挂起并验证无写入者，必要迁移再显式应用。
 
 运行记录不随 clone 携带；完成摘要可显式导出为不含秘密的交付记录。垃圾回收只清理已终态且被明确保留策略覆盖的数据，不自动删除历史失败与活跃事务。
+
+## 9. 规模与特殊仓库边界
+
+原始字节 sourceFingerprint 证明命令实际读取的输入，Git blob 投影证明交付内容，保留双记录；不将二者合并。baseHash 仍按规格文件原始 UTF-8 字节计算，换行差异需显式 rebaseline，不声称跨换行配置自动等价。
+
+V1 对 submodule、sparse checkout、LFS/clean filter 输入先诊断。发现参与源输入但不能完整枚举/物化/重现转换的内容时返回 unsupported-input 并挂起，不能把 gitlink 或指针文件当成已验证的源码。后续支持需扩展版本化 manifest 与 fixtures。common-dir 随容器/磁盘丢失时不承诺自动恢复，须显式导入证据并重查事实。
+
+完整 manifest/diff 存为证据，可按模块/路径分片审查，各片绑定相同 reviewBase 和输入指纹，最终检查覆盖并集、重复和缺项；禁止因上下文上限截断后声称完整审查。单命令日志截断须保留截断标识及完整日志摘要；证据超出可安全存储/读取范围时挂起并输出容量诊断，不静默丢弃。阶段交接仅传必要权威文档、当前 revision/指纹及证据引用；宿主上下文预算/用量不可得时标 unknown，不编造 token 数。接近宿主预算时先保存 checkpoint，再在宿主允许的新上下文中重查恢复，不能自动另启模型会话。

@@ -1,10 +1,31 @@
 {
   "name": "workflow-project",
-  "version": "0.0.0",
+  "version": "0.1.0-preview.1",
   "private": true,
   "type": "module",
-  "description": "可复用的 Agent 开发工作流：自研规格、原生协作、证据恢复与项目安装。当前为方案阶段。",
+  "description": "规格驱动的本地 Agent 工作流与确定性证据工具（受限预览）",
+  "bin": { "workflow": "bin/workflow.js" },
+  "files": ["bin/", "dist/", "assets/", "README.md", "THIRD_PARTY_NOTICES.md"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test",
+    "prepack": "npm run build"
+  },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "ignore": "^7.0.13",
+    "picomatch": "^4.0.7",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/picomatch": "^4.0.3",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }

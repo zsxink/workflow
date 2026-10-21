@@ -15,4 +15,4 @@
 ## Validation
 TASK-001 在任务内按 Red → Green → Refactor 执行：先为场景写测试并运行 `app-session-test`，确认预期业务断言失败；缺少依赖、编译错误或测试无法启动不算有效 Red。再以最小实现让同一测试通过，随后重构并重复运行同一测试。
 
-SCN-SESSION-001-01 对等于阈值及大于阈值分别验证；SCN-SESSION-001-02 验证正常访问更新。额外检查并发时间更新不回退、数据未删除。TASK-002 独立核对上述场景和边界覆盖，可补充遗漏测试，但不能替代 TASK-001 的 TDD。最终使用 app-session-test、app-test、app-build 命令计划。
+SCN-SESSION-001-01 与 SCN-SESSION-001-03 分别验证等于阈值及大于阈值；SCN-SESSION-001-02 验证正常访问更新。额外检查并发时间更新不回退、数据未删除。TASK-002 独立核对上述场景和边界覆盖，可补充遗漏测试，但不能替代 TASK-001 的 TDD。最终使用 app-session-test、app-test、app-build 命令计划。

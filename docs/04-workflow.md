@@ -8,7 +8,11 @@
 
 开发角色是通用职责，技术栈要求来自项目配置和本次任务；Rust/Vue 等可以作为项目自定义角色覆盖，不进入核心阶段逻辑。
 
+用户已确认当前保留五职责/阶段及 Red→Green 两次权限派发；试点观测成本与质量后再评估角色合并，不提前跳过任何阶段。Reviewer 缺只读隔离继续停门禁。
+
 ## 2. 阶段与证据
+
+本文 verify-final 为阶段/checkpoint 名称，CLI 对应 `workflow verify <change> --run <id> --stage final`；候选树 capture/confirm 接口见 [CLI 契约](08-cli.md)。
 
 | 阶段 | 执行主体 | 必需通过条件 |
 | --- | --- | --- |
