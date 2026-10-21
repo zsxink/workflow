@@ -1,0 +1,6 @@
+formatVersion: 1
+id: session-timeout
+title: 空闲会话到期
+modules: [app]
+dependsOn: []
+extensions: {}

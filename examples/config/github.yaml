@@ -1,0 +1,46 @@
+formatVersion: 1
+project:
+  id: sample-service
+  name: Sample Service
+  authoritativeDocs: [docs/requirements.md]
+  rules: .workflow/rules.md
+hosts: [claude, opencode, pi]
+modules:
+  - id: service
+    paths: [src/**, tests/**]
+    role: developer
+git:
+  baseBranch: main
+  branchPrefix: workflow/
+integration:
+  profile: github
+  mode: prepare
+  github:
+    repository: example/sample-service
+    requirePullRequest: true
+    requireChecks: true
+    mergeMethod: squash
+tracking:
+  required: true
+  providers:
+    - id: github-issues
+      adapter: github
+      github:
+        server: https://github.com
+        repository: example/planning
+validation:
+  extraSourceInputs: []
+  commands:
+    - id: service-test
+      executable: npm
+      args: [test]
+      cwd: .
+      timeoutSeconds: 300
+      modules: [service]
+      artifacts: [coverage/**]
+policy:
+  retryLimit: 2
+  crRoundLimit: 3
+  epicConcurrency: 3
+  requireScopedWriteIsolation: true
+extensions: {}

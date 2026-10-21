@@ -1,0 +1,3 @@
+tracking:
+  provider: github-issues
+  itemId: "42"

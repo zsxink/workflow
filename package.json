@@ -1,0 +1,10 @@
+{
+  "name": "workflow-project",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "可复用的 Agent 开发工作流：自研规格、原生协作、证据恢复与项目安装。当前为方案阶段。",
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
