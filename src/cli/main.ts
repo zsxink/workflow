@@ -1,4 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { WorkflowError, assert, type Diagnostic } from '../shared/errors.js';
 import { sha256 } from '../shared/hash.js';
@@ -17,10 +20,23 @@ import { previewRebaseline } from '../application/rebaseline.js';
 
 declare const __WORKFLOW_VERSION__: string;
 const version = typeof __WORKFLOW_VERSION__ === 'undefined' ? '0.1.0-preview.1' : __WORKFLOW_VERSION__;
+
+async function selectHosts(): Promise<string[]> {
+  if (!stdin.isTTY || !stdout.isTTY) return ['codex'];
+  const prompt = createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = (await prompt.question('选择要支持的宿主：\n  1) Codex\n  2) Claude\n  3) Codex + Claude\n请输入 1、2 或 3 [默认 1]：')).trim();
+    if (!answer || answer === '1' || answer.toLowerCase() === 'codex') return ['codex'];
+    if (answer === '2' || answer.toLowerCase() === 'claude') return ['claude'];
+    if (answer === '3' || answer.toLowerCase() === 'codex,claude') return ['codex', 'claude'];
+    throw new WorkflowError('CLI_ARGUMENT', '请输入 1、2、3，或 codex、claude、codex,claude。');
+  } finally { prompt.close(); }
+}
+
 const help = `Workflow ${version} — 受限预览 / Node.js 22.12+
 
 已实现的 CLI：
-  init [--hosts codex,claude] [--dry-run] [--operation-id ID]
+  init [--hosts codex|claude|codex,claude] [--dry-run]
   doctor
   upgrade|uninstall [--apply --plan-digest HASH --operation-id ID]
   change new ID --operation-id ID
@@ -80,8 +96,8 @@ async function command(args: Arguments): Promise<Outcome> {
   if (name === 'init') {
     requireWords(args, 1); allowFlags(args, ['hosts', 'profile', 'dry-run', 'operation-id']);
     assert(!args.flags.profile || args.flags.profile === 'local', 'PROFILE_UNSUPPORTED', 'Only the local initialization profile is implemented', 5);
-    const hosts = typeof args.flags.hosts === 'string' ? args.flags.hosts.split(',') : undefined;
-    const data = await initProject(args.project, { hosts, dryRun: !!args.flags['dry-run'], operationId: args.flags['dry-run'] ? undefined : requireFlag(args, 'operation-id'), runtimePath: fileURLToPath(import.meta.url) });
+    const hosts = typeof args.flags.hosts === 'string' ? args.flags.hosts.split(',') : await selectHosts();
+    const data = await initProject(args.project, { hosts, dryRun: !!args.flags['dry-run'], operationId: args.flags['dry-run'] ? undefined : String(args.flags['operation-id'] ?? `init-${randomUUID()}`), runtimePath: fileURLToPath(import.meta.url) });
     return { data: 'changes' in data ? planSummary(data) : data };
   }
   if (name === 'doctor') {

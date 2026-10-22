@@ -14,12 +14,20 @@ npm run check
 node bin/workflow.js --help
 ```
 
-在已有提交的目标 Git 仓库中安装本地固定 runtime：
+先在本仓库构建 CLI，然后进入已有提交的目标 Git 仓库，直接初始化：
 
 ```sh
-node /absolute/path/to/workflow/bin/workflow.js init --project /path/to/project --hosts codex,claude --operation-id install-001
-node /path/to/project/.workflow/runtime/workflow.js doctor --project /path/to/project --json
+cd /absolute/path/to/workflow
+npm ci
+npm run build
+npm link
+
+cd /path/to/project
+workflow init
+workflow doctor --json
 ```
+
+`npm link` 只在本机建立全局命令到源码目录的链接，不会发布 npm 包。交互终端运行 `workflow init` 会选择 Codex、Claude 或两者；也可用 `--hosts codex`、`--hosts claude` 或 `--hosts codex,claude` 直接指定。非交互终端且未传 `--hosts` 时默认 Codex。命令默认使用当前 Git 仓库，并自动生成幂等 operation-id。目标项目中的固定 runtime、托管资产和 install manifest 属于应随项目提交的内容。
 
 `doctor` 在资产完整时可报告 `installed: true`，但当前 `executionReady: false`、退出码为 5。配置默认没有验证命令，接入项目必须自行声明范围、规则和验证计划。安装不会调用模型。
 

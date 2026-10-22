@@ -39,12 +39,15 @@ Reviewer 覆盖检查只证明覆盖声明完整，不证明宿主已隔离；�
 ```sh
 npm ci
 npm run check
-node bin/workflow.js --help
-node bin/workflow.js init --project /path/to/git-project --hosts codex,claude --dry-run --json
-node bin/workflow.js init --project /path/to/git-project --hosts codex,claude --operation-id install-001 --json
+npm run build
+npm link
+cd /path/to/git-project
+workflow --help
+workflow init --dry-run --json
+workflow init
 ```
 
-安装需现有 Git 提交，默认分支从仓库事实核实；普通目录只能生成非执行安装计划。安装后的 `.workflow/runtime/workflow.js` 不依赖全局 npm 包或开发 node_modules。应提交托管 runtime、模板 base 缓存及 install.json。
+本地试用可用 `npm link` 建立全局命令链接，不会发布 npm 包。进入目标仓库后，交互终端运行 `workflow init` 可选择 Codex、Claude 或两者；也可使用 `--hosts codex`、`--hosts claude` 或 `--hosts codex,claude`。非交互终端未传 `--hosts` 时默认 Codex。operation-id 自动生成。安装需现有 Git 提交，默认分支从仓库事实核实；普通目录只能生成非执行安装计划。安装后的 `.workflow/runtime/workflow.js` 不依赖全局 npm 包或开发 node_modules。应提交托管 runtime、模板 base 缓存及 install.json。
 
 主会话先准备独立分支，再创建变更：
 
