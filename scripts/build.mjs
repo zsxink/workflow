@@ -1,8 +1,25 @@
 import { build } from 'esbuild';
-import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile, chmod } from 'node:fs/promises';
+import { relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const assets = await readFile(new URL('../src/installer/assets.ts', import.meta.url), 'utf8');
 if (!assets.includes(`export const PACKAGE_VERSION = '${pkg.version}';`)) throw new Error('Installer assets and package.json versions must match');
+const templateRoot = fileURLToPath(new URL('../assets/templates/', import.meta.url));
+async function collectTemplates(directory = templateRoot) {
+  const templates = {};
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) Object.assign(templates, await collectTemplates(path));
+    else if (entry.isFile() && entry.name.endsWith('.md')) {
+      const key = relative(templateRoot, path).split(sep).join('/').slice(0, -3);
+      templates[key] = await readFile(path, 'utf8');
+    }
+  }
+  return templates;
+}
+const templatePayload = JSON.stringify(await collectTemplates());
 await mkdir(new URL('../dist', import.meta.url), { recursive: true });
 await build({
   entryPoints: ['src/cli/main.ts'],
@@ -13,6 +30,15 @@ await build({
   format: 'esm',
   banner: { js: "#!/usr/bin/env node\nimport { createRequire as __wfCreateRequire } from 'node:module'; const require = __wfCreateRequire(import.meta.url);" },
   define: { __WORKFLOW_VERSION__: JSON.stringify(pkg.version) },
+  plugins: [{
+    name: 'embed-workflow-templates',
+    setup(build) {
+      build.onLoad({ filter: /template-loader\.ts$/ }, () => ({
+        contents: `export const templates: Readonly<Record<string, string>> = Object.freeze(${templatePayload});`,
+        loader: 'ts'
+      }));
+    }
+  }],
   metafile: true,
   legalComments: 'linked'
 });

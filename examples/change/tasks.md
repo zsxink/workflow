@@ -1,7 +1,6 @@
 # 任务
 
-## TASK-001 — 实现服务端到期判定
-- Status: pending
+## [ ] TASK-001 — 实现服务端到期判定
 - Requires: REQ-SESSION-001
 - Depends-On: none
 - Write-Scopes: src/session/**, tests/session/**
@@ -10,8 +9,7 @@
 - Test-Commands: app-session-test
 - Acceptance: 三个场景对应路径实现，复用认证响应，不删除业务数据
 
-## TASK-002 — 补充场景及边界验证
-- Status: pending
+## [ ] TASK-002 — 补充场景及边界验证
 - Requires: REQ-SESSION-001
 - Depends-On: TASK-001
 - Write-Scopes: tests/session/**

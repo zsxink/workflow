@@ -113,3 +113,59 @@ test('a task scope edit between parsing and fingerprint capture cannot authentic
   assert.match(await readFile(tasksPath, 'utf8'), /tests\/session\/narrow/);
   assert.equal((await readRun(project, run.runId)).revision, 0);
 });
+
+test('Architect can prepare a change-scoped packet before design and tasks exist', async t => {
+  const { project, run } = await fixture(t);
+  await rm(path.join(project, '.workflow/changes/session-timeout/tasks.md'));
+  await rm(path.join(project, '.workflow/changes/session-timeout/design.md'));
+  const prepared = await prepareRunDispatch(project, run.changeId, run.runId, { owner: run.owner, expectedRevision: 0, operationId: 'architect-draft', runtime }, { role: 'architect' });
+  assert.equal(prepared.packet.scope, 'change');
+  assert.equal(prepared.packet.taskId, undefined);
+  assert.deepEqual(prepared.packet.allowedPaths, ['.workflow/changes/session-timeout/design.md', '.workflow/changes/session-timeout/tasks.md']);
+  assert(prepared.packet.requirementIds.includes('REQ-SESSION-001'));
+  assert.equal(prepared.packet.executionReady, false);
+  await assert.rejects(prepareRunDispatch(project, run.changeId, run.runId, { owner: run.owner, expectedRevision: 1, operationId: 'missing-task', runtime }, { role: 'tester' }), { code: 'DISPATCH_TASK_ID' });
+});
+
+test('non-TDD developer packets bind the actual task mode and cannot borrow Green', async t => {
+  const { project, run } = await fixture(t);
+  await assert.rejects(prepareRunDispatch(project, run.changeId, run.runId, { owner: run.owner, expectedRevision: 0, operationId: 'green-bypass', runtime }, { taskId: 'TASK-002', role: 'developer-green' }), { code: 'DISPATCH_TEST_MODE' });
+  const prepared = await prepareRunDispatch(project, run.changeId, run.runId, { owner: run.owner, expectedRevision: 0, operationId: 'verification', runtime }, { taskId: 'TASK-002', role: 'developer-verification' });
+  assert.equal(prepared.packet.scope, 'task');
+  assert.equal(prepared.packet.testMode, 'verification');
+  assert.equal(prepared.packet.cycleId, undefined);
+  assert.deepEqual(prepared.packet.taskPlan?.testCommands, ['app-session-test']);
+  assert(prepared.packet.taskPlan?.testRationale);
+  assert.equal(prepared.executionReady, false);
+  const next = { owner: run.owner, expectedRevision: 1, operationId: 'wrong-mode', runtime };
+  await assert.rejects(prepareRunDispatch(project, run.changeId, run.runId, next, { taskId: 'TASK-001', role: 'developer-verification' }), { code: 'DISPATCH_TEST_MODE' });
+});
+
+test('exempt packet preserves an alternative acceptance plan without claiming approval', async t => {
+  const { project, run } = await fixture(t);
+  const tasksPath = path.join(project, '.workflow/changes/session-timeout/tasks.md');
+  await writeFile(tasksPath, (await readFile(tasksPath, 'utf8')).replace('Test-Mode: verification', 'Test-Mode: exempt').replace('- Test-Rationale: 独立检查场景和边界覆盖，可补充缺失测试；不得替代 TASK-001 的任务内 TDD。', '- Test-Rationale: 手工替代验收\n- Alternative-Acceptance: Leader 按场景逐项检查并记录责任人'));
+  const withAlternative = await readFile(tasksPath, 'utf8');
+  await writeFile(tasksPath, withAlternative.replace('- Alternative-Acceptance: Leader 按场景逐项检查并记录责任人\n', ''));
+  await assert.rejects(prepareRunDispatch(project, run.changeId, run.runId, { owner: run.owner, expectedRevision: 0, operationId: 'exempt-no-plan', runtime }, { taskId: 'TASK-002', role: 'developer-exempt' }), { code: 'DISPATCH_INVALID_DRAFT' });
+  await writeFile(tasksPath, withAlternative);
+  const prepared = await prepareRunDispatch(project, run.changeId, run.runId, { owner: run.owner, expectedRevision: 0, operationId: 'exempt', runtime }, { taskId: 'TASK-002', role: 'developer-exempt' });
+  assert.equal(prepared.packet.testMode, 'exempt');
+  assert.match(prepared.packet.taskPlan!.alternativeAcceptance!, /Leader/);
+  assert(prepared.packet.requiredCapabilities.includes('approved-alternative-acceptance'));
+  assert.equal(prepared.packet.status, 'planned');
+  assert.equal(prepared.executionReady, false);
+});
+
+test('non-TDD preparation rejects unknown commands and paths outside configured modules', async t => {
+  const { project, run } = await fixture(t);
+  const taskPath = path.join(project, '.workflow/changes/session-timeout/tasks.md');
+  const original = await readFile(taskPath, 'utf8');
+  const verification = original.replace(/Test-Mode: tdd/g, 'Test-Mode: verification\n- Test-Rationale: Characterization and regression');
+  const credentials = { owner: run.owner, expectedRevision: 0, operationId: 'bad-non-tdd', runtime };
+  await writeFile(taskPath, verification.replace(/Test-Commands: .+/g, 'Test-Commands: nonexistent-command'));
+  await assert.rejects(prepareRunDispatch(project, run.changeId, run.runId, credentials, { taskId: 'TASK-001', role: 'developer-verification' }), { code: 'DISPATCH_INVALID_DRAFT' });
+  await writeFile(taskPath, verification.replace(/Write-Scopes: .+/g, 'Write-Scopes: outside-module/**'));
+  await assert.rejects(prepareRunDispatch(project, run.changeId, run.runId, credentials, { taskId: 'TASK-001', role: 'developer-verification' }), { code: 'DISPATCH_INVALID_DRAFT' });
+  assert.equal((await readRun(project, run.runId)).revision, 0);
+});

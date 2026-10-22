@@ -9,17 +9,19 @@ import { WorkflowError, assert } from '../shared/errors.js';
 import { sha256, stableStringify } from '../shared/hash.js';
 import { loadConfig } from '../project/index.js';
 import { INSTALL_HOSTS, diagnoseHost, type InstallHost } from '../hosts/index.js';
+import { readHostEvidence } from '../hosts/evidence.js';
 import { PACKAGE_VERSION, ASSET_FORMAT_VERSION, BLOCK_START, BLOCK_END, managedAssets } from './assets.js';
+import { isTemplateLanguage, renderTemplate, resolveTemplateLanguage, type TemplateLanguage } from './render-template.js';
 import { acquireLock, releaseLock } from '../runtime/locks.js';
 import { planTransaction, applyTransaction, loadTransaction, assertStoreReadable } from '../runtime/transactions.js';
 
 const exec = promisify(execFile);
 const MANIFEST = '.workflow/install.json';
 export interface ManagedPath { path: string; sourceTemplateId: string; installedHash: string; baseContentHash: string; mode: 'file' | 'block' }
-export interface InstallManifest { formatVersion: 1; packageVersion: string; assetFormatVersion: 1; runtimeSha256: string; installedAt: string; hosts: InstallHost[]; managedPaths: ManagedPath[]; userOwned: string[] }
+export interface InstallManifest { formatVersion: 1; packageVersion: string; assetFormatVersion: 1; runtimeSha256: string; installedAt: string; language?: TemplateLanguage; hosts: InstallHost[]; managedPaths: ManagedPath[]; userOwned: string[] }
 export interface InstallChange { path: string; status: 'added' | 'updated' | 'unchanged' | 'conflict' | 'removed' | 'preserved'; expectedHash: string | null; content: string | null; reason?: string }
 export interface InstallPlan { formatVersion: 1; operation: 'init' | 'upgrade' | 'uninstall'; planId: string; projectRoot: string; packageVersion: string; createdAt: string; changes: InstallChange[]; digest: string; applicable: boolean; diagnostics: string[] }
-export interface InitOptions { hosts?: string[]; dryRun?: boolean; operationId?: string; planDigest?: string; runtimePath?: string }
+export interface InitOptions { hosts?: string[]; language?: TemplateLanguage; dryRun?: boolean; operationId?: string; planDigest?: string; runtimePath?: string }
 
 async function git(root: string, args: string[]): Promise<string> { return (await exec('git', ['-C', root, ...args], { encoding: 'utf8' })).stdout.trim(); }
 async function repository(root: string) {
@@ -66,8 +68,9 @@ async function manifest(root: string): Promise<InstallManifest | null> {
   const raw = await bytes(root, MANIFEST); if (!raw) return null;
   let value: InstallManifest; try { value = JSON.parse(raw.toString()); } catch { throw new WorkflowError('INSTALL_MANIFEST_INVALID', '安装清单不是有效 JSON。'); }
   assert(value.formatVersion === 1 && value.assetFormatVersion === 1 && typeof value.packageVersion === 'string' && Array.isArray(value.managedPaths) && Array.isArray(value.hosts), 'INSTALL_MANIFEST_INVALID', '未知安装清单格式。');
+  assert(value.language === undefined || isTemplateLanguage(value.language), 'INSTALL_MANIFEST_INVALID', '安装清单中的语言设置无效。');
   hosts(value.hosts);
-  const allowed = new Set(managedAssets(value.hosts, Buffer.alloc(0)).map(x => x.path));
+  const allowed = new Set(managedAssets(value.hosts, Buffer.alloc(0), '', value.language ?? 'zh-CN').map(x => x.path));
   const seen = new Set<string>();
   for (const item of value.managedPaths) {
     assert(allowed.has(item.path) && !seen.has(item.path) && typeof item.sourceTemplateId === 'string' && (item.mode === (item.path === 'AGENTS.md' ? 'block' : 'file')), 'INSTALL_MANIFEST_INVALID', '清单包含未知、重复或用户所有路径。');
@@ -114,6 +117,7 @@ async function newPlan(root: string, operation: InstallPlan['operation'], option
   if (old && operation === 'init') assert(old.packageVersion === PACKAGE_VERSION, 'UPGRADE_REQUIRED', '项目已安装其他版本；请显式生成 upgrade 计划。', 3);
   if (operation !== 'init') assert(old, 'NOT_INSTALLED', '项目尚未安装 Workflow。');
   const selected = hosts(options.hosts ?? old?.hosts);
+  const language = resolveTemplateLanguage(options.language ?? old?.language ?? 'zh-CN');
   const changes: InstallChange[] = [];
   const add = async (path: string, content: string | null, status: InstallChange['status'], reason?: string) => {
     const current = await bytes(root, path); changes.push({ path, content, status, expectedHash: current ? sha256(current) : null, ...(reason ? { reason } : {}) });
@@ -126,7 +130,7 @@ async function newPlan(root: string, operation: InstallPlan['operation'], option
     }
     await add(MANIFEST, null, 'removed');
   } else {
-    const runtimePackage = await runtimeBytes(options.runtimePath); const runtime = runtimePackage.content; const desired = managedAssets(selected, runtime, runtimePackage.notices); const entries: ManagedPath[] = [];
+    const runtimePackage = await runtimeBytes(options.runtimePath); const runtime = runtimePackage.content; const desired = managedAssets(selected, runtime, runtimePackage.notices, language); const entries: ManagedPath[] = [];
     for (const asset of desired) {
       const current = await bytes(root, asset.path); const before = old?.managedPaths.find(x => x.path === asset.path);
       const wanted = Buffer.isBuffer(asset.content) ? asset.content : Buffer.from(asset.content); const hash = sha256(wanted);
@@ -159,12 +163,19 @@ async function newPlan(root: string, operation: InstallPlan['operation'], option
         await git(root, ['rev-parse', '--verify', `${baseBranch}^{commit}`]);
       } catch { diagnostics.push('无法从已有提交核实 baseBranch；实际 init 需要有提交的分支，且不猜测 main。'); }
       const config = { formatVersion: 1, project: { id: basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'project', name: basename(root), authoritativeDocs: [], rules: '.workflow/rules.md' }, hosts: selected, modules: [{ id: 'project', paths: ['**'], role: 'developer' }], git: { baseBranch, branchPrefix: 'workflow/' }, integration: { profile: 'local', mode: 'prepare' }, tracking: { required: false, providers: [] }, validation: { extraSourceInputs: [], commands: [] }, policy: { retryLimit: 2, crRoundLimit: 3, epicConcurrency: 3, requireScopedWriteIsolation: false }, extensions: {} };
-      for (const [path, content] of [['.workflow/config.yaml', yamlStringify(config)], ['.workflow/rules.md', '# Project rules\n\nDefine project-specific validation and ownership before execution.\n']] as const) {
+      for (const [path, content] of [['.workflow/config.yaml', yamlStringify(config)], ['.workflow/rules.md', renderTemplate(language, 'project-rules')]] as const) {
         if (await bytes(root, path) === null) await add(path, Buffer.from(content).toString('base64'), 'added');
         else await add(path, null, 'preserved', '已有用户配置/规则，保持用户所有。');
       }
+    } else if (language !== (old.language ?? 'zh-CN')) {
+      const rulesPath = '.workflow/rules.md';
+      const currentRules = await bytes(root, rulesPath);
+      const previousDefaults = [renderTemplate(old.language ?? 'zh-CN', 'project-rules'), '# Project rules\n\nDefine project-specific validation and ownership before execution.\n'];
+      if (currentRules && previousDefaults.includes(currentRules.toString())) {
+        await add(rulesPath, Buffer.from(renderTemplate(language, 'project-rules')).toString('base64'), 'updated');
+      }
     }
-    const next: InstallManifest = { formatVersion: 1, packageVersion: PACKAGE_VERSION, assetFormatVersion: ASSET_FORMAT_VERSION, runtimeSha256: sha256(runtime), installedAt: old?.installedAt ?? '', hosts: selected, managedPaths: entries, userOwned: ['.workflow/config.yaml', '.workflow/rules.md', '.workflow/specs/**', '.workflow/changes/**', '.workflow/archive/**'] };
+    const next: InstallManifest = { formatVersion: 1, packageVersion: PACKAGE_VERSION, assetFormatVersion: ASSET_FORMAT_VERSION, runtimeSha256: sha256(runtime), installedAt: old?.installedAt ?? '', language, hosts: selected, managedPaths: entries, userOwned: ['.workflow/config.yaml', '.workflow/rules.md', '.workflow/host-evidence.json', '.workflow/specs/**', '.workflow/changes/**', '.workflow/archive/**'] };
     const content = Buffer.from(JSON.stringify(next, null, 2) + '\n'); const existing = await bytes(root, MANIFEST);
     await add(MANIFEST, content.toString('base64'), existing && sha256(existing) === sha256(content) ? 'unchanged' : old ? 'updated' : 'added');
   }
@@ -205,11 +216,12 @@ function materialize(c: InstallChange): Buffer | null {
 export interface InstallOperationRequest {
   operation: InstallPlan['operation'];
   hosts?: string[];
+  language?: TemplateLanguage;
   runtimePath?: string;
   planDigest?: string;
 }
 interface InstallRequestRecord {
-  operation: InstallPlan['operation']; requestedHosts: string[] | null;
+  operation: InstallPlan['operation']; requestedHosts: string[] | null; requestedLanguage: TemplateLanguage | null;
   runtimeSha256: string | null; noticesSha256: string | null; planDigest: string | null;
 }
 interface InstallReceipt { formatVersion: 1; planDigest: string; planId: string; request: InstallRequestRecord }
@@ -217,13 +229,13 @@ function validateOperationId(id: string) { assert(/^[A-Za-z0-9][A-Za-z0-9._-]{0,
 async function normalizeRequest(request: InstallOperationRequest): Promise<InstallRequestRecord> {
   assert(['init', 'upgrade', 'uninstall'].includes(request.operation), 'INSTALL_REQUEST_INVALID', '安装请求操作无效。');
   const runtime = request.operation === 'uninstall' ? null : await runtimeBytes(request.runtimePath);
-  return { operation: request.operation, requestedHosts: request.hosts ? hosts(request.hosts).slice().sort() : null,
+  return { operation: request.operation, requestedHosts: request.hosts ? hosts(request.hosts).slice().sort() : null, requestedLanguage: request.language === undefined ? null : resolveTemplateLanguage(request.language),
     runtimeSha256: runtime ? sha256(runtime.content) : null, noticesSha256: runtime ? sha256(runtime.notices) : null,
     planDigest: request.planDigest ?? null };
 }
 function requestFromPlan(plan: InstallPlan): InstallRequestRecord {
   const hash = (path: string) => { const content = plan.changes.find(c => c.path === path)?.content; assert(content, 'INSTALL_PLAN_INVALID', `安装计划缺少 ${path}`); return sha256(Buffer.from(content, 'base64')); };
-  return { operation: plan.operation, requestedHosts: null, runtimeSha256: plan.operation === 'uninstall' ? null : hash('.workflow/runtime/workflow.js'),
+  return { operation: plan.operation, requestedHosts: null, requestedLanguage: null, runtimeSha256: plan.operation === 'uninstall' ? null : hash('.workflow/runtime/workflow.js'),
     noticesSha256: plan.operation === 'uninstall' ? null : hash('.workflow/runtime/THIRD_PARTY_LICENSES.txt'), planDigest: plan.digest };
 }
 function encodeReceipt(receipt: InstallReceipt): string { return 'workflow-install-v1:' + Buffer.from(stableStringify(receipt)).toString('base64'); }
@@ -238,7 +250,9 @@ async function replayUnderLock(repo: Awaited<ReturnType<typeof repository>>, ope
   const journalPath = await checkedPath(repo.common, `workflow/transactions/install-${operationId}/journal.json`);
   try { await lstat(journalPath); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   const previous = await loadTransaction(journalPath); const receipt = decodeReceipt(previous.operation);
-  assert(previous.root === repo.root && stableStringify(receipt.request) === stableStringify(request), 'OPERATION_ID_CONFLICT', '同一 operation-id 已绑定其他安装请求。', 4);
+  const previousRequest = { ...receipt.request } as InstallRequestRecord;
+  if (!Object.prototype.hasOwnProperty.call(previousRequest, 'requestedLanguage')) previousRequest.requestedLanguage = 'zh-CN';
+  assert(previous.root === repo.root && stableStringify(previousRequest) === stableStringify(request), 'OPERATION_ID_CONFLICT', '同一 operation-id 已绑定其他安装请求。', 4);
   assert(previous.status === 'committed', 'TRANSACTION_PENDING', '此安装操作尚未完成，需显式恢复。', 7);
   await applyTransaction(previous);
   return { planId: receipt.planId, operationId, transactionId: previous.transactionId, changed: previous.entries.length > 0,
@@ -290,7 +304,7 @@ export async function applyInstallPlan(root: string, plan: InstallPlan, options:
 export async function initProject(root: string, options: InitOptions = {}) {
   if (options.dryRun) return newPlan(root, 'init', options);
   assert(options.operationId, 'OPERATION_ID_REQUIRED', '实际 init 需要 operation-id。');
-  const request: InstallOperationRequest = { operation: 'init', hosts: options.hosts, runtimePath: options.runtimePath, planDigest: options.planDigest };
+  const request: InstallOperationRequest = { operation: 'init', hosts: options.hosts, language: options.language, runtimePath: options.runtimePath, planDigest: options.planDigest };
   const replay = await replayInstallOperation(root, options.operationId, request); if (replay) return replay;
   const plan = await newPlan(root, 'init', options);
   return applyInstallPlan(root, plan, { operationId: options.operationId, planDigest: options.planDigest ?? plan.digest, request });
@@ -299,6 +313,7 @@ export async function doctor(root: string) {
   root = await realpath(root);
   const diagnostics: { code: string; message: string }[] = [];
   let install: InstallManifest | null = null;
+  let config: Awaited<ReturnType<typeof loadConfig>> | null = null;
   try {
     await assertStoreReadable(root, MANIFEST);
     install = await manifest(root);
@@ -308,12 +323,19 @@ export async function doctor(root: string) {
       if (content === null || sha256(content) !== item.installedHash) diagnostics.push({ code: 'MANAGED_ASSET_CHANGED', message: `管理资产缺失或被修改: ${item.path}` });
     }
     await repository(root);
-    if (install) await loadConfig(root);
+    if (install) config = await loadConfig(root);
     const [major, minor] = process.versions.node.split('.').map(Number);
     if (major < 22 || (major === 22 && minor < 12)) diagnostics.push({ code: 'NODE_VERSION_UNSUPPORTED', message: '要求 Node.js 22.12+。' });
   } catch (error) { diagnostics.push({ code: (error as WorkflowError).code ?? 'INSTALL_INVALID', message: (error as Error).message }); }
   const installed = install !== null && diagnostics.length === 0;
-  return { installed, executionReady: false, packageVersion: install?.packageVersion ?? null, expectedPackageVersion: PACKAGE_VERSION, runtimeVersionMatches: install?.packageVersion === PACKAGE_VERSION, hosts: (install?.hosts ?? []).map(diagnoseHost), diagnostics, exitCode: 5, status: installed ? 'installed-execution-unverified' : 'not-installed-or-invalid' };
+  const hostEvidence = install ? await readHostEvidence(root, install.hosts) : { hosts: {}, diagnostics: [] };
+  const hostDiagnostics = hostEvidence.diagnostics;
+  const hosts = (install?.hosts ?? []).map(id => diagnoseHost(id, hostEvidence.hosts[id], config?.policy.requireScopedWriteIsolation ?? false));
+  const hostExecutionReady = installed && hostDiagnostics.length === 0 && hosts.length > 0 && hosts.every(host => host.executionReady && host.roleIsolationVerified);
+  // The preview CLI still rejects phase-success evidence; host capability evidence alone cannot complete its lifecycle.
+  const workflowLifecycleReady = false;
+  const executionReady = hostExecutionReady && workflowLifecycleReady;
+  return { installed, executionReady, hostExecutionReady, workflowLifecycleReady, packageVersion: install?.packageVersion ?? null, expectedPackageVersion: PACKAGE_VERSION, runtimeVersionMatches: install?.packageVersion === PACKAGE_VERSION, language: install?.language ?? 'zh-CN', hostEvidencePath: '.workflow/host-evidence.json', hosts, diagnostics: [...diagnostics, ...hostDiagnostics], exitCode: installed && executionReady ? 0 : 5, status: !installed ? 'not-installed-or-invalid' : executionReady ? 'installed-execution-ready' : hostExecutionReady ? 'installed-host-ready-lifecycle-unverified' : 'installed-execution-unverified' };
 }
 export async function uninstallProject(root: string, options: { dryRun?: boolean; operationId?: string; planDigest?: string } = {}) {
   if (options.dryRun !== false) return planUninstall(root);

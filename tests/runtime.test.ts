@@ -32,6 +32,17 @@ test('source manifest is stable before staging and after commit, including delet
   const removed = await captureFingerprints(root); assert.notEqual(removed.sourceFingerprint, committed.sourceFingerprint);
   await command(root, 'add', '-u'); assert.equal((await captureFingerprints(root)).sourceFingerprint, removed.sourceFingerprint);
 });
+test('checking a completed task does not invalidate its plan fingerprint', async t => {
+  const root = await fixture(t);
+  const directory = path.join(root, '.workflow/changes/checklist');
+  await mkdir(directory, { recursive: true });
+  const taskPath = path.join(directory, 'tasks.md');
+  await writeFile(taskPath, '# Tasks\n\n## [ ] TASK-001 — Implement behavior\n- Requires: REQ-CHECKLIST-001\n');
+  const before = await captureFingerprints(root);
+  await writeFile(taskPath, (await readFile(taskPath, 'utf8')).replace('## [ ] TASK-001', '## [x] TASK-001'));
+  const after = await captureFingerprints(root);
+  assert.equal(after.planFingerprint, before.planFingerprint);
+});
 test('only repository gitignore rules select inputs; tracked ignored inputs require declaration', async t => {
   const root = await fixture(t);
   await writeFile(path.join(root, 'local.txt'), 'included');
@@ -48,6 +59,43 @@ test('only repository gitignore rules select inputs; tracked ignored inputs requ
   const prior = captured.policyFingerprint;
   await command(root, 'add', '.gitignore');
   assert.equal((await captureFingerprints(root, { extraSourceInputs: ['source.txt'] })).policyFingerprint, prior);
+});
+test('authoritative docs and agent instructions are policy inputs, including ignored docs and artifact paths', async t => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, '.workflow'), { recursive: true });
+  await mkdir(path.join(root, 'docs/private'), { recursive: true });
+  await mkdir(path.join(root, 'nested/deeper'), { recursive: true });
+  await writeFile(path.join(root, '.workflow/config.yaml'), 'project:\n  authoritativeDocs:\n    - docs/private/contract.md\n');
+  await writeFile(path.join(root, 'docs/private/contract.md'), 'contract v1\n');
+  await writeFile(path.join(root, 'AGENTS.md'), 'root instructions\n');
+  await writeFile(path.join(root, 'CLAUDE.md'), 'root claude instructions\n');
+  await writeFile(path.join(root, 'nested/AGENTS.md'), 'nested instructions\n');
+  await writeFile(path.join(root, 'nested/deeper/CLAUDE.md'), 'nested claude instructions\n');
+  await writeFile(path.join(root, '.gitignore'), 'docs/private/\n');
+
+  const before = await captureFingerprints(root, { artifactExcludes: ['docs/private/**'] });
+  const policyPaths = before.manifests.policy.map(entry => entry.path);
+  for (const filename of ['docs/private/contract.md', 'AGENTS.md', 'CLAUDE.md', 'nested/AGENTS.md', 'nested/deeper/CLAUDE.md']) {
+    assert(policyPaths.includes(filename), `${filename} should be fingerprinted as policy`);
+  }
+  assert(!before.manifests.source.some(entry => entry.path.startsWith('docs/private/')));
+
+  await writeFile(path.join(root, 'docs/private/contract.md'), 'contract v2\n');
+  const after = await captureFingerprints(root, { artifactExcludes: ['docs/private/**'] });
+  assert.notEqual(after.policyFingerprint, before.policyFingerprint);
+  assert.equal(after.sourceFingerprint, before.sourceFingerprint);
+});
+test('explicit policy globs opt ignored agent instructions into traversal', async t => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, 'private'), { recursive: true });
+  await writeFile(path.join(root, '.gitignore'), 'private/\n');
+  await writeFile(path.join(root, 'private/AGENTS.md'), 'applicable instructions\n');
+  await writeFile(path.join(root, 'private/CLAUDE.md'), 'applicable claude instructions\n');
+  const defaults = await captureFingerprints(root);
+  assert(!defaults.manifests.policy.some(entry => entry.path.startsWith('private/')));
+  const explicit = await captureFingerprints(root, { policyInputs: ['**/AGENTS.md', '**/CLAUDE.md'] });
+  assert(explicit.manifests.policy.some(entry => entry.path === 'private/AGENTS.md'));
+  assert(explicit.manifests.policy.some(entry => entry.path === 'private/CLAUDE.md'));
 });
 test('nested gitignore rules and symlink text are fingerprinted without following links', async t => {
   const root = await fixture(t);

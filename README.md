@@ -2,7 +2,7 @@
 
 一个可安装到不同项目的 Agent 开发工作流，包含自研规格引擎、原生子 Agent 协作协议、运行恢复工具和安装器。
 
-> 当前状态：`0.1.0-preview.1` 受限预览。已实现规格引擎、状态与文件事务内核、安全安装及部分 CLI；原生宿主身份、授权来源与 Reviewer 权限隔离尚未验收，完整开发、归档和集成入口保持阻断。具体边界见 [实现记录](docs/17-implementation.md)。
+> 当前状态：`0.1.0-preview.2` 受限预览。已实现规格引擎、状态与文件事务内核、安全安装及部分 CLI；原生宿主身份、授权来源与 Reviewer 权限隔离尚未验收，完整开发、归档和集成入口保持阻断。具体边界见 [实现记录](docs/17-implementation.md)。
 
 ## 本地运行
 
@@ -27,11 +27,11 @@ workflow init
 workflow doctor --json
 ```
 
-`npm link` 只在本机建立全局命令到源码目录的链接，不会发布 npm 包。交互终端运行 `workflow init` 会选择 Codex、Claude 或两者；也可用 `--hosts codex`、`--hosts claude` 或 `--hosts codex,claude` 直接指定。非交互终端且未传 `--hosts` 时默认 Codex。命令默认使用当前 Git 仓库，并自动生成幂等 operation-id。目标项目中的固定 runtime、托管资产和 install manifest 属于应随项目提交的内容。
+`npm link` 只在本机建立全局命令到源码目录的链接，不会发布 npm 包。交互终端运行 `workflow init` 会选择 Codex、Claude 或两者，并选择中文或英文模板；默认中文。非交互环境可用 `--hosts codex,claude --language en` 指定。宿主和语言也可分别通过 `--hosts codex`、`--hosts claude`、`--hosts codex,claude` 与 `--language zh-CN`、`--language en` 指定。非交互终端且未传 `--hosts` 时默认 Codex；未传 `--language` 时默认中文，新版本重复初始化会沿用安装清单中的语言。命令默认使用当前 Git 仓库，并自动生成幂等 operation-id。目标项目中的固定 runtime、托管资产和 install manifest 属于应随项目提交的内容。
 
-`doctor` 在资产完整时可报告 `installed: true`，但当前 `executionReady: false`、退出码为 5。配置默认没有验证命令，接入项目必须自行声明范围、规则和验证计划。安装不会调用模型。
+`doctor` 在资产完整时可报告 `installed: true`。宿主能力由主会话实测后写入项目自有 `.workflow/host-evidence.json`；缺少新鲜证据时对应能力为 `unknown`。`hostExecutionReady` 表示启用的宿主能力及角色隔离已核实；当前受限预览仍不支持阶段成功、归档及集成，因此项目级 `executionReady` 保持 `false`、退出码为 5。配置默认没有验证命令，接入项目必须自行声明范围、规则和验证计划。安装不会调用模型。
 
-已开放 `init`、`doctor`、`upgrade`、`uninstall`、`change new/list`、`validate`、`trace`、`sync`、`run init`、`status`、`resume-plan`、`lock heartbeat`，以及只读 `change rebaseline --run ID`、`dispatch prepare/collect`、`test-cycle baseline`、`evidence show`。`sync` 只生成正式规格投影；派发包保持 planned，基线结果不自动推进阶段。升级和卸载默认只输出计划，应用需提供该计划的 `--plan-digest` 与 `--operation-id`；已改动的用户文件不被覆盖。所有命令支持 `--project` 和 `--json`。
+已开放 `init`、`doctor`、`upgrade`、`uninstall`、`change new/list`、`validate`、`trace`、`sync`、`run init`、`status`、`resume-plan`、`lock heartbeat`，以及只读 `change rebaseline --run ID`、`dispatch prepare/collect/audit`、`test-cycle baseline`、`evidence show`。`sync` 只生成正式规格投影；Architect 可不指定 --task 准备 change scope 包；非 TDD 使用 developer-verification / developer-exempt。派发包保持 planned，audit 只读核对真实工作树差异，基线与审计结果不自动推进阶段。升级和卸载默认只输出计划，应用需提供该计划的 `--plan-digest` 与 `--operation-id`；已改动的用户文件不被覆盖。所有命令支持 `--project` 和 `--json`。
 
 `approve`、真实派发关联、TDD cycle 开启/接受/推进、阶段成功、`archive`、`verify`、`candidate`、`reopen/rebaseline` 应用、`recover/takeover`、`integrate`、tracking 和 Epic 尚未开放 CLI 执行。底层已有部分纯函数和事务测试，不代表这些流程可用。
 
@@ -94,3 +94,5 @@ Node.js 为确定性工具运行环境；Workflow 不用 Node.js、其他脚本�
 ## 当前仓库
 
 源码位于 `src/`，测试位于 `tests/`，`npm run build` 生成单文件离线 CLI。运行依赖及许可证随 runtime 分发；没有引入其他规格产品实现。npm 包仍为 private，未公开发布；GitHub/tracking/Epic 及双仓真实宿主试点仍在路线图中。
+
+最新规范衔接复核见 [工作流、规格与 Agent 规范复核](docs/18-contract-review.md)，含本轮优化与仍未闭合的执行路径。

@@ -1,0 +1,3 @@
+Workflow {{version}}: Run `node .workflow/runtime/workflow.js doctor` first, then read `.workflow/managed/protocol.md`, `.workflow/rules.md`, and `.agents/skills/workflow/SKILL.md`.
+Use Chinese by default; switch when the user explicitly chooses English. Do not dispatch or claim a phase passed until doctor verifies host dispatch and permission isolation.
+The main session is the only Leader and dispatches only through native sub-agent tools; the CLI does not launch agents. Preserve existing changes. Require evidence at every phase, use `## [ ] TASK-001 — Title` task blocks, and let only the Leader check them after acceptance.

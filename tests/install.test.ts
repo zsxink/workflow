@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { planInit, initProject, planUpgrade, planUninstall, applyInstallPlan, doctor, replayInstallOperation, uninstallProject } from '../src/installer/index.js';
+import { CAPABILITIES } from '../src/hosts/index.js';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'workflow-install-'));
@@ -32,6 +33,21 @@ test('init plans first, installs exact runtime and verified bases, keeps host ex
     const agents = await readFile(join(f.root, 'AGENTS.md'), 'utf8'); assert.ok(agents.startsWith('# User instructions\n'));
     const status = await doctor(f.root); assert.equal(status.installed, true); assert.equal(status.executionReady, false); assert.equal(status.exitCode, 5);
     const again = await planInit(f.root, { runtimePath: f.runtimePath }); assert.equal(again.applicable, true); assert.equal(again.changes.every(c => ['unchanged', 'preserved'].includes(c.status)), true);
+  } finally { await f.dispose(); }
+});
+test('doctor consumes fresh host evidence without claiming the preview lifecycle is ready', async () => {
+  const f = await fixture(); try {
+    await install(f.root, f.runtimePath);
+    const capabilities = Object.fromEntries(CAPABILITIES.map(name => [name, { status: 'supported', basis: `Verified ${name} in the pinned host session.`, references: [`probe-${name}`] }]));
+    const hosts = ['codex', 'claude'].map(id => ({ id, clientVersion: `${id} 1.2.3`, verifiedAt: new Date().toISOString(), nativeDispatch: `${id} native subagent tool observed`, identityAndResult: 'Observed native ID and completion result', capabilities }));
+    await writeFile(join(f.root, '.workflow/host-evidence.json'), JSON.stringify({ formatVersion: 1, hosts }));
+    const status = await doctor(f.root);
+    assert.equal(status.installed, true);
+    assert.equal(status.hostExecutionReady, true);
+    assert.equal(status.workflowLifecycleReady, false);
+    assert.equal(status.executionReady, false);
+    assert.equal(status.exitCode, 5);
+    assert.equal(status.hosts.every(host => host.executionReady && host.roleIsolationVerified), true);
   } finally { await f.dispose(); }
 });
 test('unregistered existing files conflict even when bytes equal; user config is never adopted', async () => {

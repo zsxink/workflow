@@ -65,6 +65,18 @@ test('CLI installs fixed runtime, preserves files, validates and projects exampl
   await git(root, ['checkout', '-b', 'codex/demo']);
   const created = await cli(root, ['change', 'new', 'demo', '--operation-id', 'create-demo']);
   assert.equal(created.code, 0, JSON.stringify(created.envelope));
+  const createdTasks = await readFile(path.join(root, '.workflow/changes/demo/tasks.md'), 'utf8');
+  assert.match(createdTasks, /## \[ \] TASK-001/);
+  assert.match(createdTasks, /Test-Mode:/);
+  assert.match(createdTasks, /完成并有相应证据后勾选/);
+  const createdProposal = await readFile(path.join(root, '.workflow/changes/demo/proposal.md'), 'utf8');
+  const createdDesign = await readFile(path.join(root, '.workflow/changes/demo/design.md'), 'utf8');
+  assert.match(createdProposal, /结合仓库证据描述当前问题/);
+  assert.match(createdProposal, /零 delta 的理由/);
+  assert.match(createdDesign, /备选方案及取舍理由/);
+  assert.match(createdDesign, /CI/);
+  assert.equal((await cli(root, ['validate', 'demo', '--gate', 'draft'])).code, 0);
+  assert.notEqual((await cli(root, ['validate', 'demo', '--gate', 'spec'])).code, 0, 'Untouched template placeholders must not pass the spec gate');
   const replay = await cli(root, ['change', 'new', 'demo', '--operation-id', 'create-demo']);
   assert.equal(replay.code, 0, JSON.stringify(replay.envelope));
   assert.equal(replay.envelope.data.transactionId, created.envelope.data.transactionId);
@@ -119,6 +131,26 @@ test('remote default base protects local main while allowing a distinct branch a
   await git(root, ['checkout', '-b', 'codex/remote-demo']);
   const allowed = await cli(root, ['change', 'new', 'remote-demo', '--operation-id', 'branch-allowed']);
   assert.equal(allowed.code, 0, JSON.stringify(allowed.envelope));
+});
+
+test('change new follows the installed Chinese or English template language', async t => {
+  const root = await repository(t);
+  assert.equal((await cli(root, ['init', '--language', 'en', '--operation-id', 'language-install'])).code, 0);
+  await git(root, ['checkout', '-b', 'codex/english-change']);
+  const created = await cli(root, ['change', 'new', 'english-change', '--operation-id', 'english-change-create']);
+  assert.equal(created.code, 0, JSON.stringify(created.envelope));
+  const tasks = await readFile(path.join(root, '.workflow/changes/english-change/tasks.md'), 'utf8');
+  const proposal = await readFile(path.join(root, '.workflow/changes/english-change/proposal.md'), 'utf8');
+  const design = await readFile(path.join(root, '.workflow/changes/english-change/design.md'), 'utf8');
+  assert.match(tasks, /Check a task only after it is complete and supported by evidence/);
+  assert.match(tasks, /Alternative-Acceptance/);
+  assert.match(tasks, /## \[ \] TASK-001 —/);
+  assert.match(proposal, /Describe the observed problem/);
+  assert.match(proposal, /zero behavior delta/i);
+  assert.match(design, /alternatives considered with the reasons for the trade-offs/);
+  assert.match(design, /CI job or workflow/);
+  assert.equal((await cli(root, ['validate', 'english-change', '--gate', 'draft'])).code, 0);
+  assert.notEqual((await cli(root, ['validate', 'english-change', '--gate', 'spec'])).code, 0, 'An English scaffold must remain a draft until real requirements and commands are supplied');
 });
 
 test('CLI persists real baseline evidence across processes and prepares a non-executable native task packet', async t => {
@@ -176,6 +208,12 @@ test('packed package installs into fresh clone and runs without node_modules or 
   const doctor = await cli(clone, ['doctor'], installedEntry);
   assert.equal(doctor.code, 5);
   assert.equal(doctor.envelope.data.installed, true, JSON.stringify(doctor.envelope));
+  await git(clone, ['checkout', '-b', 'codex/packed-template']);
+  const packedChange = await cli(clone, ['change', 'new', 'packed-demo', '--operation-id', 'packed-template-create'], installedEntry);
+  assert.equal(packedChange.code, 0, JSON.stringify(packedChange.envelope));
+  assert.match(await readFile(path.join(clone, '.workflow/changes/packed-demo/design.md'), 'utf8'), /回滚步骤及其限制/);
+  assert.match(await readFile(path.join(clone, '.workflow/changes/packed-demo/tasks.md'), 'utf8'), /Test-Rationale/);
+  assert.equal((await cli(clone, ['validate', 'packed-demo', '--gate', 'draft'], installedEntry)).code, 0);
   const uninstall = await cli(clone, ['uninstall'], installedEntry);
   assert.equal(uninstall.code, 0, JSON.stringify(uninstall.envelope));
   const apply = await cli(clone, ['uninstall', '--apply', '--plan-digest', uninstall.envelope.data.planDigest, '--operation-id', 'remove-package'], installedEntry);
@@ -183,5 +221,51 @@ test('packed package installs into fresh clone and runs without node_modules or 
   const removedReplay = await cli(clone, ['uninstall', '--apply', '--plan-digest', uninstall.envelope.data.planDigest, '--operation-id', 'remove-package'], packageEntry);
   assert.equal(removedReplay.code, 0, JSON.stringify(removedReplay.envelope));
   assert.match(await readFile(path.join(clone, '.workflow/config.yaml'), 'utf8'), /formatVersion: 1/);
-  assert.match(await readFile(path.join(clone, '.workflow/rules.md'), 'utf8'), /Project rules/);
+  assert.match(await readFile(path.join(clone, '.workflow/rules.md'), 'utf8'), /项目规则/);
+});
+
+test('CLI prepares Architect without tasks and exposes task-bound non-TDD roles', async t => {
+  const root = await repository(t);
+  assert.equal((await cli(root, ['init', '--operation-id', 'dispatch-modes-install'])).code, 0);
+  await git(root, ['checkout', '-b', 'codex/dispatch-modes']);
+  await cp(path.join(sourceRoot, 'examples/change'), path.join(root, '.workflow/changes/session-timeout'), { recursive: true });
+  await cp(path.join(sourceRoot, 'examples/config/minimal.yaml'), path.join(root, '.workflow/config.yaml'));
+  await cp(path.join(sourceRoot, 'examples/rules.md'), path.join(root, '.workflow/rules.md'));
+  const tasksPath = path.join(root, '.workflow/changes/session-timeout/tasks.md');
+  const tasks = await readFile(tasksPath, 'utf8');
+  await rm(tasksPath);
+  await rm(path.join(root, '.workflow/changes/session-timeout/design.md'));
+  await commit(root, 'draft fixture');
+  const started = await cli(root, ['run', 'init', 'session-timeout', '--operation-id', 'draft-run']);
+  assert.equal(started.code, 0, JSON.stringify(started.envelope));
+  const run = started.envelope.data;
+  const credentials = ['--run', run.runId, '--owner', run.owner, '--expected-revision', '0'];
+  const missing = await cli(root, ['dispatch', 'prepare', 'session-timeout', '--role', 'developer-verification', ...credentials, '--operation-id', 'missing-task']);
+  assert.equal(missing.envelope.diagnostics[0].code, 'DISPATCH_TASK_ID');
+  const architect = await cli(root, ['dispatch', 'prepare', 'session-timeout', '--role', 'architect', ...credentials, '--operation-id', 'draft-architect']);
+  assert.equal(architect.code, 0, JSON.stringify(architect.envelope));
+  assert.equal(architect.envelope.data.packet.scope, 'change');
+  assert.equal('taskId' in architect.envelope.data.packet, false);
+  assert.equal(architect.envelope.data.executionReady, false);
+  // A separate change exercises task mode parsing without pretending the Architect ran.
+  await mkdir(path.join(root, '.workflow/changes/verification-demo'), { recursive: true });
+  await cp(path.join(sourceRoot, 'examples/change'), path.join(root, '.workflow/changes/verification-demo'), { recursive: true });
+  const metadataPath = path.join(root, '.workflow/changes/verification-demo/change.yaml');
+  await writeFile(metadataPath, (await readFile(metadataPath, 'utf8')).replace('id: session-timeout', 'id: verification-demo'));
+  await writeFile(path.join(root, '.workflow/changes/verification-demo/tasks.md'), tasks);
+  await commit(root, 'verification fixture');
+  const verificationRun = await cli(root, ['run', 'init', 'verification-demo', '--operation-id', 'verification-run']);
+  assert.equal(verificationRun.code, 0, JSON.stringify(verificationRun.envelope));
+  const v = verificationRun.envelope.data;
+  const prepared = await cli(root, ['dispatch', 'prepare', 'verification-demo', '--task', 'TASK-002', '--role', 'developer-verification', '--run', v.runId, '--owner', v.owner, '--expected-revision', '0', '--operation-id', 'verification-packet']);
+  assert.equal(prepared.code, 0, JSON.stringify(prepared.envelope));
+  assert.equal(prepared.envelope.data.packet.testMode, 'verification');
+  assert.equal(prepared.envelope.data.packet.cycleId, undefined);
+  const beforeAudit = await cli(root, ['status', 'verification-demo', '--run', v.runId]);
+  const audited = await cli(root, ['dispatch', 'audit', 'verification-demo', '--run', v.runId, '--dispatch', prepared.envelope.data.packet.id, '--attempt', prepared.envelope.data.packet.attemptId]);
+  assert.equal(audited.code, 3, JSON.stringify(audited.envelope));
+  assert.equal(audited.envelope.data.readonly, true);
+  assert.equal(audited.envelope.data.acceptedOutput, false);
+  assert(audited.envelope.diagnostics.some((d: { code: string }) => d.code === 'OUTPUT_ATTEMPT_NOT_ATTACHED'));
+  assert.deepEqual((await cli(root, ['status', 'verification-demo', '--run', v.runId])).envelope, beforeAudit.envelope);
 });

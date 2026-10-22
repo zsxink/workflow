@@ -4,7 +4,7 @@
 
 每个 run 的 `state.json` 是权威机器状态。包含 formatVersion、revision、projectId、changeId、runId、owner、worktree、branch、phase/task/attempt、approval、fingerprints、checkpoints、decisions、各类有界重试预算及 terminal 状态。同 change 的后继 run 记录 previousRunId 并在变更锁内核对历史状态、继承未决问题及预算消耗；新 run 不能重置计数。追加预算需引用新的用户决策，保留初始额度、已用额度与追加记录，不另设可修改的 Markdown 账本。
 
-`events.jsonl` 和 `progress.md` 从已提交 revision 派生。状态中的事务 ID/事件 ID 用于检测遗漏和重复；视图写失败时可重建，不把日志尾部未提交记录当成状态。文档 `tasks.md` 的 Status 为可核对视图，实际验收依赖 state 中的证据。
+`events.jsonl` 和 `progress.md` 从已提交 revision 派生。状态中的事务 ID/事件 ID 用于检测遗漏和重复；视图写失败时可重建，不把日志尾部未提交记录当成状态。`tasks.md` 的 `[ ]` / `[x]` 是计划文档中的完成标记，不构成验收证据；实际验收依赖 state 中的证据。
 
 阶段状态为 pending → running → succeeded / failed / suspended。跳转使用预期 revision 的 compare-and-swap。对旧 revision 的修改返回 STATE_CONFLICT，不重写新状态。事件和失败记录保留，不用覆写最终状态抹去 attempt。
 
@@ -22,16 +22,22 @@
 
 | 指纹 | 输入 | 失效影响 |
 | --- | --- | --- |
-| sourceFingerprint | tracked 与允许纳入的 untracked 源文件内容、路径和类型 | CR、Verify、Integrate |
+| sourceFingerprint | tracked 与允许纳入的 untracked 源文件内容、路径和类型 | 未归属漂移从 dev 重核，并使 tester/CR/Verify/Integrate 失效 |
 | specFingerprint | proposal、delta、正式规格基线、授权语义、事项身份及已采纳需求语义 | approval、spec-gate 及下游 |
 | planFingerprint | design、任务语义/依赖/范围、验证计划 | spec-gate、派发及下游 |
-| policyFingerprint | config/rules、宿主能力要求、角色及运行器精确版本、Git 内容转换策略 | 所有受影响门禁 |
+| policyFingerprint | config/rules、project.authoritativeDocs、仓库内 AGENTS.md/CLAUDE.md、宿主能力要求、角色及运行器精确版本、Git 内容转换策略 | 从 architect 起重核所有受影响门禁 |
 
 所有路径相对仓库根，分隔符规范化，UTF-8 字节排序，记录类型及 SHA-256。符号链接只哈希链接目标文本，拒绝通过链接访问项目外文件。大小写碰撞在跨平台校验时报错。
 
 source manifest 从工作树实际文件系统枚举，只使用仓库边界内实际存在的 .gitignore 规则及项目明确声明的构建产物排除；规则文件按固定路径/层级读取并纳入 policyFingerprint，不按 tracked/index 状态选择，新增规则在 stage 前后保持一致；禁用用户全局 core.excludesFile 和 .git/info/exclude 等本机排除规则，不能直接使用继承本机配置的 `git check-ignore --no-index` 结果；Git 元数据、其他 worktree 和 `.workflow/` 中已由其他指纹覆盖的数据不重复纳入。额外必须覆盖的 ignored 文件由 validation.extraSourceInputs 声明；已跟踪但被忽略且未归属其他指纹/产物的文件，配置检查拒绝漏采并要求声明。Git index 仅用于审计，不决定 manifest 路径集合。删除表现为原 manifest 条目消失，删除证据另记源码差异 tombstone（不等同规格历史索引）；相同磁盘内容在 stage/commit 前后必须得到相同 sourceFingerprint。不能按任一路径分量叫 dist/target 就自动排除，避免漏掉真实源目录。
 
-spec/plan 归一化只允许忽略明确的任务 Status 和展示时间；审批内容、场景、命令参数、路径与约束不能被归一化掉。规格归档的路径变化通过事务记录的 before/after specFingerprint 映射解释，不能泛化为“规格改了也可复用验证”。
+spec/plan 归一化只允许忽略任务复选框和展示时间；审批内容、场景、命令参数、路径与约束不能被归一化掉。规格归档的路径变化通过事务记录的 before/after specFingerprint 映射解释，不能泛化为“规格改了也可复用验证”。
+
+权威文档先保守纳入 policy 指纹，不尝试自动按自然语言区分行为/设计/策略段落。其变化从 architect 复核适用性，再更新受影响 spec/plan 与授权；不因文件位于 docs/ 就仅按普通源码处理。仓库内可枚举的各级 `AGENTS.md` / `CLAUDE.md` 同样纳入 policy；忽略/产物目录默认剪枝，其中实际适用的规范须通过 authoritativeDocs 或显式 policyInputs 声明，不遍历全部依赖目录。已忽略的显式权威输入不能漏采。仓库外 Skill/会话指令需由后续派发上下文摘要绑定，当前文件 manifest 不声称覆盖宿主外部输入。
+
+指纹说明变化，不能单独说明变化原因。授权步骤的产物接收必须另核对 attempt、路径差异与步骤时序，再推进当前基线；未知漂移才按保守恢复矩阵处理。历史步骤证据保留为当时事实，不自动转成新快照的当前通过证据。`invalidateForInputs` 保守失效全部 cycle；合法步骤使用独立的产物审计/接收领域逻辑，保留完成历史，并更新当前指纹及受影响门禁。完整组合仍需当前输入的最终验证，不能逐项累加历史通过来推断。
+
+dispatchPreparation 保存起始 HEAD/index、完整 manifests、指纹和派发证据序列边界；缺少完整起始快照的旧派发不能用当前文件补造。领域接收将输入/输出指纹、manifest 证据 ID、文件清单、命令引用及失效阶段写入 dispatch.outputReceipt。应用层只读 audit 从真实 Git/文件系统重新采样并核对期间 run/输入稳定性，不提供自写成功 JSON 的导入或应用入口；宿主作者/授权来源未验收前不持久化成功收据。
 
 ## 4. 证据最小字段
 

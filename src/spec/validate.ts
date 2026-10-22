@@ -5,7 +5,7 @@ import { planSync, validateHistory } from './sync.js';
 import type { ChangeBundle, Gate, ScenarioEvidence, Task, TraceResult } from './types.js';
 
 export function taskPlanFingerprint(tasks: Task[]): string {
-  return sha256(stableStringify(tasks.map(t => ({ id: t.id, title: t.title, fields: Object.fromEntries(Object.entries(t.fields).filter(([k]) => k !== 'Status')) }))));
+  return sha256(stableStringify(tasks.map(t => ({ id: t.id, title: t.title, fields: t.fields }))));
 }
 function cycles(nodes: { id: string; dependencies: string[]; path: string; line: number }[], code: string): Diagnostic[] {
   const diagnostics: Diagnostic[] = []; const byId = new Map(nodes.map(n => [n.id, n])); const colors = new Map<string, number>();
@@ -25,16 +25,28 @@ export function scopeWithin(scope: string, parent: string): boolean {
 }
 export function traceChange(bundle: ChangeBundle, evidence: ScenarioEvidence[] = bundle.integrationEvidence?.scenarioEvidence ?? []): TraceResult {
   const diagnostics: Diagnostic[] = []; const entries: TraceResult['entries'] = [];
-  const changed = bundle.deltas.flatMap(d => d.requirements.filter(r => r.operation !== 'REMOVE'));
-  for (const requirement of changed) for (const scenario of requirement.scenarios) {
+  for (const delta of bundle.deltas) for (const requirement of delta.requirements) {
     const tasks = bundle.tasks?.tasks.filter(t => t.requires.includes(requirement.id)) ?? [];
-    if (!tasks.length) diagnostics.push(diagnostic('TRACE_MISSING_TASK', `场景 ${scenario.id} 缺少关联任务`, scenario.path, scenario.line));
-    const matched = evidence.filter(e => e.scenarioId === scenario.id && tasks.some(t => t.id === e.taskId));
-    const covered = matched.some(e => e.outcome === 'passed' && !!e.evidenceId?.trim() && !/^(?:none|todo|pending|placeholder|unknown|n\/a)$/i.test(e.evidenceId.trim()) && ['automated', 'manual', 'not-applicable'].includes(e.mode) && (e.mode !== 'not-applicable' || !!e.rationale?.trim()));
-    if (!covered) diagnostics.push(diagnostic('TRACE_MISSING_SCENARIO', `场景 ${scenario.id} 缺少有效验收证据`, scenario.path, scenario.line));
-    entries.push({ requirementId: requirement.id, scenarioId: scenario.id, taskIds: tasks.map(t => t.id), evidence: matched, covered });
+    const original = bundle.specs.find(s => s.capability === delta.capability)?.requirements.find(r => r.id === requirement.id);
+    if (requirement.operation !== 'REMOVE') for (const scenario of requirement.scenarios) add(scenario, 'current');
+    // Derive deletions from the original document, never from the declared ID list alone.
+    // planSync separately checks its baseline hash and exact Removed-Scenarios declaration.
+    if (original && (requirement.operation === 'REMOVE' || requirement.operation === 'UPDATE')) {
+      for (const scenario of original.scenarios) if (requirement.operation === 'REMOVE' || !requirement.scenarios.some(s => s.id === scenario.id)) {
+        add(scenario, 'removal', requirement.operation === 'REMOVE' ? requirement.reason : requirement.removalReasons[scenario.id]);
+      }
+    }
+    function add(scenario: { id: string; path: string; line: number }, kind: 'current' | 'removal', removalReason?: string) {
+      if (!tasks.length) diagnostics.push(diagnostic('TRACE_MISSING_TASK', `场景 ${scenario.id} 缺少关联任务`, scenario.path, scenario.line));
+      const matched = evidence.filter(e => e.scenarioId === scenario.id && tasks.some(t => t.id === e.taskId) && (e.purpose ?? 'current') === kind);
+      const covered = matched.some(e => e.outcome === 'passed' && !!e.evidenceId?.trim() && !/^(?:none|todo|pending|placeholder|unknown|n\/a)$/i.test(e.evidenceId.trim()) && (kind === 'removal'
+        ? ['automated', 'manual'].includes(e.mode) && !!e.rationale?.trim()
+        : ['automated', 'manual', 'not-applicable'].includes(e.mode) && (e.mode !== 'not-applicable' || !!e.rationale?.trim())));
+      if (!covered) diagnostics.push(diagnostic('TRACE_MISSING_SCENARIO', `场景 ${scenario.id} 缺少有效${kind === 'removal' ? '移除或替代' : ''}验收证据`, scenario.path, scenario.line));
+      entries.push({ kind, ...(kind === 'removal' ? { removalReason } : {}), requirementId: requirement.id, scenarioId: scenario.id, taskIds: tasks.map(t => t.id), evidence: matched, covered });
+    }
   }
-  for (const e of evidence) if (!entries.some(x => x.scenarioId === e.scenarioId && x.taskIds.includes(e.taskId))) diagnostics.push(diagnostic('TRACE_DANGLING_EVIDENCE', `证据 ${e.evidenceId} 引用未知场景或任务`, bundle.tasks?.path ?? 'tasks.md'));
+  for (const e of evidence) if (!entries.some(x => x.scenarioId === e.scenarioId && x.taskIds.includes(e.taskId) && x.kind === (e.purpose ?? 'current'))) diagnostics.push(diagnostic('TRACE_DANGLING_EVIDENCE', `证据 ${e.evidenceId} 引用未知场景、任务或验收用途`, bundle.tasks?.path ?? 'tasks.md'));
   return { entries, diagnostics };
 }
 export function validateChange(bundle: ChangeBundle, gate: Gate = 'spec'): Diagnostic[] {
@@ -90,7 +102,8 @@ export function validateChange(bundle: ChangeBundle, gate: Gate = 'spec'): Diagn
   const commands = Array.isArray(rawCommands) ? rawCommands.filter(c => c && typeof c === 'object' && typeof c.id === 'string').map(c => c.id as string) : [];
   if (rawCommands !== undefined && (!Array.isArray(rawCommands) || commands.length !== rawCommands.length)) diagnostics.push(diagnostic('SPEC_CONFIG_INVALID', '项目 validation.commands 配置格式无效', '.workflow/config.yaml'));
   const validReqs = new Set([...bundle.specs.flatMap(s => s.requirements.map(r => r.id)), ...bundle.deltas.flatMap(d => d.requirements.filter(r => r.operation !== 'REMOVE').map(r => r.id))]);
-  for (const d of bundle.deltas) for (const r of d.requirements) if (r.operation === 'REMOVE') validReqs.delete(r.id);
+  // A REMOVE task references its existing baseline REQ for audit only. It does not
+  // reactivate the ID; missing targets and historical reuse still fail planSync.
   const tasks = bundle.tasks?.tasks ?? [];
   for (const task of tasks) {
     for (const req of task.requires) if (!validReqs.has(req)) diagnostics.push(diagnostic('TASK_REQUIREMENT_MISSING', `任务引用不存在的需求 ${req}`, task.path, task.line));

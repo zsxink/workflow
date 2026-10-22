@@ -54,6 +54,10 @@ readOnlyIsolation, scopedWriteIsolation, cancellation
 
 每项报告 supported/unsupported/unknown 及依据、宿主版本、核查时间。安装发现、执行原生派发、角色权限限制是三种不同事实，文件存在不能证明 runtime 可用。
 
+主会话实际核查后，可将结构化结果写入项目自有文件 `.workflow/host-evidence.json`。文件使用 `formatVersion: 1` 和 `hosts` 数组；每个宿主记录 `id`、`clientVersion`、`verifiedAt`、`nativeDispatch`、`identityAndResult`，并为全部能力提供 `status`、`basis`、`references`。supported/unsupported 必须关联非空证据引用；unknown 必须说明未核实原因。`doctor` 只校验格式、宿主/版本绑定字段和 30 天时效，不会启动 Agent，也不会证明引用内容真实；主会话必须先核实引用内容，不能把配置声明或 Skill 文件当作证据。安装器保留此项目自有文件。
+
+`doctor` 中单宿主的 `executionReady` 表示基础读写、命令和原生派发能力有新鲜证据；`roleIsolationVerified` 另行表示只读审查隔离及项目要求的写范围隔离已核实。项目级 `hostExecutionReady` 要求所有已启用宿主满足这两项。它与 `workflowLifecycleReady` 分开：受限预览尚未开放阶段成功的证据核验，因此项目级 `executionReady` 仍为 false；宿主能力证据不能让预览版误报完整工作流已就绪。
+
 报告另含宿主 ID/客户端版本、实际派发工具或机制、角色注册位置、子 Agent 身份类型、完成结果获取方式及扩展依赖（如有）。扩展也须注明版本、来源和派发实现；未知能力不得仅由名称或入口文件推定 supported。结果能够关联真实派发是必要条件，不能以无关联的日志文本冒充子 Agent 回报。
 
 原生工具的交互探测由当前主会话发起并保存证据；doctor/inspectCapabilities 只核查配置、已提供的宿主证据及其版本/时效，不为探测能力自行启动 Agent。宿主没有暴露状态或取消工具时如实报告，不伪造支持；恢复中写入者活性不明时维持挂起，不能为了续跑改用 CLI 重派。

@@ -6,6 +6,32 @@ import { locateRepository } from '../repository/git.js';
 import { resolveBaseRef, assertChangeBranch } from '../repository/base.js';
 import { loadConfig, resolveProjectPath } from '../project/index.js';
 import { applyTransaction, planTransaction, assertStoreReadable, acquireLock, releaseLock } from '../runtime/index.js';
+import { renderTemplate, type TemplateLanguage } from '../installer/render-template.js';
+
+async function changeLanguage(root: string): Promise<TemplateLanguage> {
+  const manifestPath = await resolveProjectPath(root, '.workflow/install.json');
+  try {
+    const info = await lstat(manifestPath);
+    assert(info.isFile() && !info.isSymbolicLink(), 'INSTALL_MANIFEST_INVALID', '安装清单必须是普通文件。');
+    const value = JSON.parse(await readFile(manifestPath, 'utf8')) as { language?: unknown };
+    assert(value.language === undefined || value.language === 'zh-CN' || value.language === 'en', 'INSTALL_MANIFEST_INVALID', '安装清单中的语言设置无效。');
+    return value.language ?? 'zh-CN';
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'zh-CN';
+    throw error;
+  }
+}
+
+function changeTemplates(id: string, language: TemplateLanguage, modules: string[]) {
+  const title = id.replaceAll('-', ' ');
+  const metadata = stringify({ formatVersion: 1, id, title, modules, dependsOn: [], extensions: {} });
+  return [
+    { path: `.workflow/changes/${id}/change.yaml`, content: metadata },
+    { path: `.workflow/changes/${id}/proposal.md`, content: renderTemplate(language, 'change/proposal', { title }) },
+    { path: `.workflow/changes/${id}/design.md`, content: renderTemplate(language, 'change/design') },
+    { path: `.workflow/changes/${id}/tasks.md`, content: renderTemplate(language, 'change/tasks') },
+  ];
+}
 
 export function changeId(value: string | undefined): string {
   assert(value && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value), 'CHANGE_INVALID_ID', 'Change ID must be lowercase kebab-case');
@@ -52,12 +78,8 @@ export async function newChange(root: string, id: string, operationId: string) {
       assert(!history.changes.some((entry: { changeId: string }) => entry.changeId === id), 'CHANGE_REUSED_ID', `Historical change ID cannot be reused: ${id}`, 3);
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const prefix = `.workflow/changes/${id}`;
-    const files = [
-      { path: `${prefix}/change.yaml`, content: stringify({ formatVersion: 1, id, title: id, modules: [], dependsOn: [], extensions: {} }) },
-      { path: `${prefix}/proposal.md`, content: `# ${id}\n\n## Problem\nDescribe the observed problem.\n\n## Goals\nDescribe the intended outcome.\n\n## Scope\nRecord the authorized behavior and paths.\n\n## Non-goals\nRecord exclusions.\n\n## Acceptance\nReference observable scenario IDs, or justify no behavior change.\n\n## Rules\nnone — Determine applicable project rules before spec-gate.\n\n## Open questions\n- QUESTION-001 | unresolved | behavior | Confirm the intended behavior and authorized scope.\n` },
-      { path: `${prefix}/design.md`, content: `# Design\n\nRecord the chosen approach, compatibility, permissions, validation selection and CI mapping.\n` },
-      { path: `${prefix}/tasks.md`, content: '# Tasks\n\nCreate stable TASK-001 blocks with requirement references, write scopes and Test-* fields before spec-gate.\n' }
-    ];
+    const configuredModules = config.modules.length === 1 ? [config.modules[0]!.id] : [];
+    const files = changeTemplates(id, await changeLanguage(root), configuredModules);
     const plan = await planTransaction({ root, journalRoot: path.join(repo.runtimeRoot, 'transactions'), operation: 'change-new', transactionId, changes: files });
     await applyTransaction(plan);
     return { changeId: id, path: prefix, transactionId: plan.transactionId, status: 'draft', executionReady: false };

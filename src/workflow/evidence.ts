@@ -5,6 +5,8 @@ import { sha256, stableStringify } from '../shared/hash.js';
 import type { CommandEvidence, Fingerprints } from './types.js';
 const observed = new Map<string, string>();
 let observationSequence = 0;
+const observationSession = randomUUID();
+export function currentEvidenceSession(): string { return observationSession; }
 export function markEvidenceBoundary(): number { return ++observationSequence; }
 export interface ExecutionSnapshot { fingerprints: Fingerprints; head: string; testDigest: string; implementationDigest: string; environmentDigest: string }
 export interface CaptureContext { runId: string; taskId: string; cycleId?: string; step: CommandEvidence['step']; commandPlanDigest: string }

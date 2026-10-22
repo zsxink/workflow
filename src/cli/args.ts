@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { WorkflowError } from '../shared/errors.js';
 
-const valueFlags = new Set(['project', 'gate', 'hosts', 'profile', 'run', 'owner', 'expected-revision', 'operation-id', 'transaction', 'reason', 'stage', 'task', 'role', 'dispatch', 'attempt', 'agent-id', 'report', 'evidence', 'phase', 'status', 'checkpoint', 'plan-id', 'plan-digest', 'to', 'commit', 'previous-owner', 'resolution', 'step', 'command', 'baseline', 'mode']);
+const valueFlags = new Set(['project', 'gate', 'hosts', 'language', 'profile', 'run', 'owner', 'expected-revision', 'operation-id', 'transaction', 'reason', 'stage', 'task', 'role', 'dispatch', 'attempt', 'agent-id', 'report', 'evidence', 'phase', 'status', 'checkpoint', 'plan-id', 'plan-digest', 'to', 'commit', 'previous-owner', 'resolution', 'step', 'command', 'baseline', 'mode']);
 const booleanFlags = new Set(['json', 'help', 'version', 'dry-run', 'apply']);
 
 export interface Arguments {

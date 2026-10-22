@@ -1,6 +1,6 @@
 {
   "name": "workflow-project",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "private": true,
   "type": "module",
   "description": "规格驱动的本地 Agent 工作流与确定性证据工具（受限预览）",

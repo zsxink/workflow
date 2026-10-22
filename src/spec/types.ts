@@ -15,7 +15,7 @@ export interface SpecDocument extends Source {
 export interface ChangeMetadata { formatVersion: 1; id: string; title: string; modules: string[]; dependsOn: string[]; tracking?: { provider: string; itemId: string }; extensions?: Record<string, unknown> }
 export interface MetadataDocument extends Source { value: ChangeMetadata; diagnostics: Diagnostic[] }
 export interface Task extends Source {
-  id: string; title: string; status: 'pending' | 'running' | 'done' | 'blocked'; requires: string[]; dependsOn: string[];
+  id: string; title: string; complete: boolean; requires: string[]; dependsOn: string[];
   writeScopes: string[]; testMode: 'tdd' | 'verification' | 'exempt'; testScopes: string[]; testCommands: string[];
   acceptance: string; rationale?: string; testRationale?: string; fields: Record<string, string>;
 }
@@ -31,7 +31,7 @@ export interface ArchiveMetadata {
   fingerprints: Record<string, string>; removed: RemovedId[];
 }
 export interface ArchiveRecord { path: string; content: string; metadata: ArchiveMetadata }
-export interface ScenarioEvidence { scenarioId: string; taskId: string; mode: 'automated' | 'manual' | 'not-applicable'; outcome: 'passed' | 'failed'; evidenceId: string; rationale?: string }
+export interface ScenarioEvidence { purpose?: 'current' | 'removal'; scenarioId: string; taskId: string; mode: 'automated' | 'manual' | 'not-applicable'; outcome: 'passed' | 'failed'; evidenceId: string; rationale?: string }
 /** These are caller-verified facts, never inferred from Markdown task status. */
 export interface IntegrationEvidence { approval: boolean; codeReview: boolean; verification: boolean; current: boolean; scenarioEvidence: ScenarioEvidence[] }
 export interface ChangeBundle {
@@ -41,7 +41,7 @@ export interface ChangeBundle {
   diagnostics: Diagnostic[]; integrationEvidence?: IntegrationEvidence; integratedChanges?: string[];
 }
 export interface ActiveReference { changeId: string; id: string; path: string; line: number }
-export interface TraceEntry { requirementId: string; scenarioId: string; taskIds: string[]; evidence: ScenarioEvidence[]; covered: boolean }
+export interface TraceEntry { kind: 'current' | 'removal'; removalReason?: string; requirementId: string; scenarioId: string; taskIds: string[]; evidence: ScenarioEvidence[]; covered: boolean }
 export interface TraceResult { entries: TraceEntry[]; diagnostics: Diagnostic[] }
 export interface SyncWrite { capability: string; path: string; beforeHash: string | null; afterHash: string; content: string }
 export interface SyncPlan { formatVersion: 1; planId: string; writes: SyncWrite[]; removed: Omit<RemovedId, 'changeId' | 'transactionId'>[]; diagnostics: Diagnostic[]; inputHashes: Record<string, string | null>; deltaHashes: Record<string, string> }

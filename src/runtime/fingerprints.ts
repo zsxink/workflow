@@ -42,12 +42,15 @@ export async function captureFingerprints(project: string, options: FingerprintO
   const config = await exists(configPath) ? parse(await readFile(configPath, 'utf8')) : {};
   const extraSourceInputs = options.extraSourceInputs ?? config?.validation?.extraSourceInputs ?? [];
   const artifactExcludes = options.artifactExcludes ?? (config?.validation?.commands ?? []).flatMap((command: { artifacts?: string[] }) => command.artifacts ?? []);
+  const authoritativeDocs = config?.project?.authoritativeDocs ?? [];
   assert(Array.isArray(extraSourceInputs) && Array.isArray(artifactExcludes), 'INVALID_CONFIG', '指纹路径配置必须为数组');
-  for (const pattern of [...extraSourceInputs, ...artifactExcludes, ...(options.policyInputs ?? [])]) relativePath(pattern);
+  assert(Array.isArray(authoritativeDocs), 'INVALID_CONFIG', 'project.authoritativeDocs 必须为数组');
+  for (const pattern of [...extraSourceInputs, ...artifactExcludes, ...authoritativeDocs, ...(options.policyInputs ?? [])]) relativePath(pattern);
   assert(!artifactExcludes.some((pattern: string) => ['**', '**/*', '*'].includes(pattern)), 'INVALID_CONFIG', '产物排除不得覆盖整个项目');
   const extra = picomatch(extraSourceInputs, { dot: true });
   const artifact = picomatch(artifactExcludes, { dot: true });
-  const policyInputs = [...(options.policyInputs ?? []), config?.project?.rules ?? '.workflow/rules.md', 'AGENTS.md'];
+  const explicitPolicyInputs = [...(options.policyInputs ?? []), config?.project?.rules ?? '.workflow/rules.md', ...authoritativeDocs, 'AGENTS.md', 'CLAUDE.md'];
+  const policyInputs = [...explicitPolicyInputs, '**/AGENTS.md', '**/CLAUDE.md'];
   for (const pattern of policyInputs) relativePath(pattern);
   const policy = picomatch(policyInputs, { dot: true });
   const modules = (config?.modules ?? []).flatMap((module: { paths?: string[] }) => module.paths ?? []);
@@ -95,7 +98,7 @@ export async function captureFingerprints(project: string, options: FingerprintO
         if (filename === '.workflow-transactions') continue;
         const sourceDirectory = !filename.startsWith('.workflow/') && filename !== '.workflow';
         const excluded = sourceDirectory && (ignored(filename, true, rules) || artifact(`${filename}/`) || artifact(filename));
-        if (excluded && !mayNeedDescendants(extraSourceInputs, filename) && !mayNeedDescendants(policyInputs, filename)) {
+        if (excluded && !mayNeedDescendants(extraSourceInputs, filename) && !mayNeedDescendants(explicitPolicyInputs, filename)) {
           const trackedInside = [...tracked].filter(item => item.startsWith(`${filename}/`) && category(item) === 'source' && !artifact(item));
           assert(trackedInside.length === 0, 'TRACKED_IGNORED_INPUT', `已跟踪但被忽略的源码必须声明 validation.extraSourceInputs: ${trackedInside[0]}`);
           assert(!artifact(`${filename}/`) || !mayNeedDescendants(modules, filename), 'SOURCE_ARTIFACT_OVERLAP', `产物排除与源码范围重叠: ${filename}`);
@@ -129,8 +132,8 @@ export async function captureFingerprints(project: string, options: FingerprintO
           let task = false; let fence = false;
           bytes = Buffer.from(bytes.toString('utf8').split('\n').map(line => {
             if (/^\s*(?:```|~~~)/.test(line)) fence = !fence;
-            if (!fence && /^##\s/.test(line)) task = /^## TASK-\d{3} (?:—|–|-) .+/.test(line);
-            return task && !fence && /^- Status:\s*(?:pending|running|done|blocked)\s*\r?$/.test(line) ? line.replace(/(Status:\s*).*/, '$1<derived>') : line;
+            if (!fence && /^##\s/.test(line)) task = /^## \[[ xX]\] TASK-\d{3} (?:—|–|-) .+/.test(line);
+            return task && !fence && /^## \[[ xX]\] TASK-\d{3} (?:—|–|-) .+/.test(line) ? line.replace(/^## \[[ xX]\]/, '## [ ]') : line;
           }).join('\n'));
         }
         entry = { path: filename, type: 'file', sha256: sha256(bytes), executable: Boolean(stat.mode & 0o111) };

@@ -28,7 +28,7 @@ test('phase order, success provenance and dispatch identity fail closed', () => 
 });
 function reportFor(state: WorkflowState): DispatchReport {
   const d = state.dispatches[0];
-  return { protocolVersion: 1, runId: state.runId, dispatchId: d.id, attemptId: d.attemptId, status: 'DONE', taskIds: [d.taskId], files: ['docs/design.md'], evidenceIds: ['evidence-1'], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], startHead: head, question: null, next: '主会话审计' };
+  return { protocolVersion: 1, runId: state.runId, dispatchId: d.id, attemptId: d.attemptId, status: 'DONE', taskIds: d.taskId ? [d.taskId] : [], files: ['docs/design.md'], evidenceIds: ['evidence-1'], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], startHead: head, question: null, next: '主会话审计' };
 }
 test('report schema and current attempt, path, DONE claims', () => {
   const p = prepareDispatch(createWorkflowState('run-test'), { taskId: 'TASK-001', role: 'architect', allowedPaths: ['docs/**'], forbiddenPaths: ['docs/secrets/**'], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], startHead: head, fingerprints: fp });
@@ -151,4 +151,15 @@ test('an actual Green command run before Red acceptance cannot be replayed after
     state = acceptRed(state, f.cycle.id, acceptance, await f.snapshot());
     assert.throws(() => recordTestStep(state, f.cycle.id, 'green', [prematurelyRunGreen]), code('TDD_GREEN_BEFORE_ACCEPTANCE'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('change-scoped Architect reports require an empty task list and block overlapping attempts', () => {
+  const prepared = prepareDispatch(createWorkflowState('run-test'), { role: 'architect', allowedPaths: ['docs/**'], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], startHead: head, fingerprints: fp });
+  assert.equal(prepared.dispatch.scope, 'change');
+  assert.throws(() => prepareDispatch(prepared.state, { taskId: 'TASK-001', role: 'tester', allowedPaths: ['tests/**'], requirementIds: [], scenarioIds: [], startHead: head, fingerprints: fp }), code('DISPATCH_ACTIVE_ATTEMPT'));
+  const state = structuredClone(prepared.state); state.dispatches[0].status = 'attached'; state.dispatches[0].agentId = 'fixture-agent';
+  const report = { ...reportFor(state), taskIds: [] };
+  assert.equal(collectDispatchReport(state, report).accepted, true);
+  assert.equal(collectDispatchReport(state, { ...report, taskIds: ['TASK-001'] }).accepted, false);
+  assert.throws(() => prepareDispatch(createWorkflowState('other'), { role: 'tester', allowedPaths: [], requirementIds: [], scenarioIds: [], startHead: head, fingerprints: fp }), code('DISPATCH_TASK_ID'));
 });

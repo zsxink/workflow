@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | 规格 M1 | 原始字节 AST、严格 YAML/ID/场景/任务校验、trace、同步/归档领域计划、历史索引重建、三方重新基线和归档投影校验 | 规则语义、行为正确性和批准来源仍须独立核查 |
 | 运行 M2 | common-dir、CAS/revision/owner、幂等请求、固定 runtime 摘要、派生视图、原始文件 manifest、文件 journal、逐路径恢复/回滚、只读恢复诊断、跨进程命令证据索引与摘要核验 | 真实宿主停止证据、接管/孤锁/进程被杀后的 guard 恢复、完整归档/reopen 业务事务、用户授权追加预算 |
-| 工作流 M3 | 纯阶段/任务派发协议、TDD 证据状态机、范围与旧 attempt 检查、完整 diff 覆盖结构、输入失效和预算继承、CLI planned 任务包/回报审计和真实基线采集 | TDD cycle 开启/接受/步骤 CLI、真实身份与授权、独立隔离审查、最终候选树/提交/集成闭环 |
+| 工作流 M3 | 纯阶段/任务派发协议、无任务 Architect 与非 TDD planned 包、TDD/产物接收领域状态机、删除场景追踪、范围/旧 attempt/命令计划时序核查、完整 diff、失效/预算、CLI 回报/真实工作树只读产物审计和真实基线采集 | TDD cycle 开启/接受/步骤 CLI、真实身份与授权、独立隔离审查、最终候选树/提交/集成闭环 |
 | 安装 M4 | 本地固定 bundle、许可证、共享协议/角色、Codex/Claude 薄入口、managed-bases、安装/升级/卸载事务和冲突保护、doctor | 宿主真实执行能力、两仓试点、公开发布；OpenCode/pi 不生成入口 |
 | M5/M6 | 仅解析已有配置/规格中的声明 | tracking/GitHub 远端事实、Epic、旧产品格式导入 |
 
@@ -47,7 +47,7 @@ workflow init --dry-run --json
 workflow init
 ```
 
-本地试用可用 `npm link` 建立全局命令链接，不会发布 npm 包。进入目标仓库后，交互终端运行 `workflow init` 可选择 Codex、Claude 或两者；也可使用 `--hosts codex`、`--hosts claude` 或 `--hosts codex,claude`。非交互终端未传 `--hosts` 时默认 Codex。operation-id 自动生成。安装需现有 Git 提交，默认分支从仓库事实核实；普通目录只能生成非执行安装计划。安装后的 `.workflow/runtime/workflow.js` 不依赖全局 npm 包或开发 node_modules。应提交托管 runtime、模板 base 缓存及 install.json。
+本地试用可用 `npm link` 建立全局命令链接，不会发布 npm 包。进入目标仓库后，交互终端运行 `workflow init` 可选择 Codex、Claude 或两者，并选择中文或英文模板；默认中文。也可使用 `--hosts codex`、`--hosts claude`、`--hosts codex,claude`，以及 `--language zh-CN` 或 `--language en`。非交互终端未传 `--hosts` 时默认 Codex，未传 `--language` 时默认中文；已安装项目重复初始化时沿用安装清单中的语言。operation-id 自动生成。安装需现有 Git 提交，默认分支从仓库事实核实；普通目录只能生成非执行安装计划。安装后的 `.workflow/runtime/workflow.js` 不依赖全局 npm 包或开发 node_modules。应提交托管 runtime、模板 base 缓存及 install.json。
 
 主会话先准备独立分支，再创建变更：
 
@@ -68,10 +68,38 @@ node /path/to/git-project/.workflow/runtime/workflow.js sync demo --project /pat
 
 ## 验收状态
 
-最终运行 `npm run check`：TypeScript 严格检查、单文件构建及 96 项测试全部通过，0 失败/跳过。`git diff --check` 通过。实现测试使用临时 Git 项目、中文/空格路径和 linked worktree。安装包测试实际执行 `npm pack`，解包后安装、提交并 fresh clone，再用随仓 runtime 检查/卸载；不从源码 node_modules 加载运行依赖。
+2026-10-22 模板优化：初始化协议、五类角色、项目规则和变更 proposal/design/tasks 均采用中英文 Markdown 资产；变更正文从 CLI 内联内容迁入模板目录，沿用原有语言选择与事务。补齐方案取舍、可观察验收、路径依赖、回报说明及规则 ID 指引；来源与取舍见 [参考资料](12-references.md)，维护入口见 [模板说明](../assets/README.md)。本轮 `npm run check` 的类型检查、构建与 102 项测试通过（0 失败/跳过），包含双语草案、安装冲突保护及打包后离线生成验证；这些结果不增加真实宿主或完整生命周期的验收范围。
+
+同日角色模板补强：五类双语角色从职责摘要扩为执行说明，补齐启动输入、权限、分步方法、角色证据标准、停止条件和可读交接结构。核对并修正了非 TDD 开发任务的权限条件、归档前/最终验证的候选树适用范围，以及审查严重度与引擎枚举的一致性。独立只读复核后无剩余确定性问题；实际重新运行构建及 CLI/安装专项测试 16 项通过（0 失败/跳过），`git diff --check` 通过。本轮为模板与说明文档修改，未重跑全部 102 项测试，也不构成真实宿主权限验收。
+
+角色与工作流衔接：五类双语模板增加阶段位置、进入条件、上游输入、实际角色 ID、交接产物、退出门槛和失败回流；protocol/shared Skill 明确 Leader 按角色映射组合任务指令、输入与证据。区分 dev 内 task/cycle/Red-Green attempt 与顶层阶段，以及 integrate 内最终 Reviewer/Verifier 门禁；只读回报 `files: []`，DONE 仍需审计。实际构建与 CLI/安装专项 16 项通过（0 失败/跳过）；独立文档复核发现的旧 Verify 表 candidateTree 条件已同步修正。当前 `dispatch prepare` 仍不自动注入角色 Markdown、关联真实身份或推进成功，本轮没有改变引擎实现及宿主验收边界。
+
+首轮实现验收运行 `npm run check`：TypeScript 严格检查、单文件构建及 96 项测试全部通过，0 失败/跳过。`git diff --check` 通过。实现测试使用临时 Git 项目、中文/空格路径和 linked worktree。安装包测试实际执行 `npm pack`，解包后安装、提交并 fresh clone，再用随仓 runtime 检查/卸载；不从源码 node_modules 加载运行依赖。
 
 本机实际运行环境为 macOS / Node.js 24.21.0。另以纯 `--version` 元数据查询观测到 Codex CLI 0.162.1、Claude Code 2.1.306；没有启动 Agent 会话，这些版本信息不证明原生身份关联、权限隔离或宿主闭环已通过。Node.js 22.12 是目标下限，本轮未单独使用该版本执行测试。
 
 两轮独立审查发现的运行元数据符号链接、跨 worktree 写入、初始化失败遗留锁、入口幂等重试、remote base 对应本地分支绕过，以及批次最终输入/完成回执和任务包范围竞态均已修复，定向复核及最终全量测试通过。本轮复核未留下已证实的 blocker/major；不代表所有目标能力已实现。
 
 可审阅安装包生成于 `.artifacts/workflow-project-0.1.0-preview.1.tgz`，该目录忽略入 Git。未操作本项目 Git index/HEAD，未公开发布。未通过的路线图项目保持未勾选。真实宿主、Windows 命令执行、GitHub/事项来源、双仓试点及公开发布未验证。
+
+
+2026-10-22 规范衔接复核：统一规范来源/权限交集、当前能力与宿主优先级；补充授权 attempt 产物接收、Tester 补测与历史 TDD 的目标契约，中英文安装模板同步。`project.authoritativeDocs` 和可枚举的根/嵌套 AGENTS.md/CLAUDE.md 纳入 policy 指纹，忽略/产物目录中的适用规范须显式声明，避免遍历全部依赖目录；回归覆盖忽略目录中的显式权威输入及文档变化后的 policy 失效。完整复核与未闭合路径见 [衔接复核](18-contract-review.md)。
+
+本轮实际 `npm run check`：类型检查、单文件构建与全部 104 项测试通过（0 失败/跳过），包括临时 Git、打包离线安装及新增指纹回归；21 份入口/专题 Markdown 的 127 个本地链接目标检查通过，`git diff --check` 通过。这些结果不关闭 Architect 无任务启动、非 TDD 派发、多任务/Tester 产物接收、删除项追踪或真实宿主/完整集成验收待办。未操作本项目 Git index/HEAD 或外部发布。
+
+本轮独立审查发现的显式 policy glob 被默认剪枝排除问题已修复并增加回归；复核后未发现本轮范围内剩余阻断问题。该结论不覆盖工作区本轮之前所有修改。
+
+
+同日后续四路径实施：Architect 省略 --task 准备 change scope 包、回报 taskIds=[]；非 TDD 的 developer-verification/developer-exempt 从真实任务绑定模式、命令完整摘要及替代验收计划，非 Architect 派发前执行完整结构校验。REMOVE 与 UPDATE 删除场景进入 current/removal 追踪，删除任务可审计引用本次原 REQ；移除证据强制独立用途与验收理由，不重新激活历史 ID。
+
+新增产物审计/接收纯领域 API：准确核对新增/修改/删除、权限、起止输入、当前 attempt、真实命令与派发时序/完整计划；防伪审计对象经域转换后记录 outputReceipt、终结 attempt、更新指纹并失效相应后续阶段，保留完成 cycle 历史。CLI `dispatch audit` 只读采集 Git/文件事实，不应用接收、不执行任意命令、不修改状态。宿主身份/授权来源、真实持久化接收、跨进程接收证据和 exempt 替代验收可信来源仍未验收，相关成功门禁保留。
+
+本轮最终验证：`npm run check` 的严格类型检查、单文件构建与全部 **130 项测试通过**（0 失败、0 跳过）；21 份入口/专题 Markdown 的 128 个本地链接目标及 `git diff --check` 通过。新增回归包含真实命令采集的 Red→Green→免重构领域接收链、Tester 历史保留、删除/重命名/越界/未知写入者、缺少起始快照、陈旧/复制/篡改审计对象、同 ID 不同命令、派发前命令及跨进程序列拒收，并验证 CLI 只读 audit 不改变 run。产物接收仅适用于写角色，不替代独立 CR/Verify；替代验收来源缺失保持拒收。独立审查发现的问题均经修复及回归，最终由主会话复核；没有将领域 fixture 中的 attached 身份当作真实宿主证据。保留原工作区修改，未操作本项目 Git index/HEAD 或外部发布。
+
+## 本地既有工作流对照与 Agent 规格优化
+
+对照 MarkFlow `markflow-issue` 与 MusicTag `pipe epic` 的本地定义，补齐主会话六步执行循环、可读派发上下文、失败分类及 Epic 调度目标契约。来源摘要和取舍见[参考资料](12-references.md)，权威规则见[执行协议](04-workflow.md)。同步中英文 protocol、shared Skill、Architect 和 design/tasks 模板，明确跨 change 前提使用既有 `change.yaml.dependsOn`，设计正文仅解释理由；Architect 无元数据写权限时向 Leader 提交建议。保留五职责、任务内 TDD、严格只读审查、自研规格与唯一 Leader。
+
+本轮仅修改文档与安装模板，不新增机器字段、CLI 或运行时实现。Epic 就绪计算、恢复与调度仍为 M6 待实施；两参考仓库只读调研，未运行其流程或修改文件。未完成的宿主、授权、事务与集成验收继续保持未完成。
+
+实际验证：先运行 `npm run check`，类型检查、构建及全部 130 项测试通过（0 失败/跳过）；独立审查发现跨 change 依赖仅写设计正文的模板遗漏，修正后定向复核无剩余确定性问题。最终模板重新构建，并运行 CLI/安装专项 17 项全部通过（0 失败/跳过），包含双语生成、升级保护及打包离线安装；最终模板调整后未再次运行全量测试。另检查 22 份 Markdown 的 136 个本地链接目标及 `git diff --check`。这些检查不构成真实宿主或 Epic 闭环验收。保留工作区既有修改，未操作本项目 Git index/HEAD 或发布。

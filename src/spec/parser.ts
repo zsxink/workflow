@@ -138,12 +138,12 @@ function parse(content: string, path: string, kind: 'spec' | 'delta'): SpecDocum
 export const parseSpec = (content: string, path = 'spec.md'): SpecDocument => parse(content, path, 'spec');
 export const parseDelta = (content: string, path = 'delta.md'): SpecDocument => parse(content, path, 'delta');
 
-const TASK_FIELDS = ['Status', 'Requires', 'Depends-On', 'Write-Scopes', 'Test-Mode', 'Test-Scopes', 'Test-Commands', 'Acceptance', 'Rationale', 'Test-Rationale', 'Alternative-Acceptance'];
+const TASK_FIELDS = ['Requires', 'Depends-On', 'Write-Scopes', 'Test-Mode', 'Test-Scopes', 'Test-Commands', 'Acceptance', 'Rationale', 'Test-Rationale', 'Alternative-Acceptance'];
 export function parseTasks(content: string, path = 'tasks.md'): TaskDocument {
   const diagnostics: Diagnostic[] = []; const tasks: Task[] = []; const lines = content.split(/\r?\n/);
   const heads: { index: number; match: RegExpMatchArray }[] = [];
   for (let i = 0; i < lines.length; i++) if (/^##\s/.test(lines[i]!)) {
-    const match = lines[i]!.match(/^## (TASK-\d{3}) (?:—|–|-) (.+)$/);
+    const match = lines[i]!.match(/^## \[([ xX])\] (TASK-\d{3}) (?:—|–|-) (.+)$/);
     if (match) heads.push({ index: i, match }); else diagnostics.push(diagnostic('TASK_SYNTAX', '任务标题必须含 TASK-NNN 和标题', path, i + 1));
   }
   for (let n = 0; n < heads.length; n++) {
@@ -157,17 +157,16 @@ export function parseTasks(content: string, path = 'tasks.md'): TaskDocument {
       if (Object.hasOwn(fields, m[1]!)) diagnostics.push(diagnostic('TASK_DUPLICATE_FIELD', `重复字段 ${m[1]}`, path, i + 1));
       fields[m[1]!] = m[2]!;
     }
-    for (const key of TASK_FIELDS.slice(0, 8)) if (!fields[key]) diagnostics.push(diagnostic('TASK_FIELD_REQUIRED', `任务缺少 ${key}`, path, index + 1));
-    if (!['pending', 'running', 'done', 'blocked'].includes(fields.Status!)) diagnostics.push(diagnostic('TASK_STATUS_INVALID', '无效任务状态', path, index + 1));
+    for (const key of TASK_FIELDS.slice(0, 7)) if (!fields[key]) diagnostics.push(diagnostic('TASK_FIELD_REQUIRED', `任务缺少 ${key}`, path, index + 1));
     if (!['tdd', 'verification', 'exempt'].includes(fields['Test-Mode']!)) diagnostics.push(diagnostic('TASK_TEST_MODE_INVALID', 'Test-Mode 必须为 tdd/verification/exempt', path, index + 1));
-    const task: Task = { id: match[1]!, title: match[2]!, path, line: index + 1, content: lines.slice(index, end).join('\n').trimEnd(), fields, status: fields.Status as Task['status'], requires: split(fields.Requires ?? ''), dependsOn: split(fields['Depends-On'] ?? ''), writeScopes: split(fields['Write-Scopes'] ?? ''), testMode: fields['Test-Mode'] as Task['testMode'], testScopes: split(fields['Test-Scopes'] ?? ''), testCommands: split(fields['Test-Commands'] ?? ''), acceptance: fields.Acceptance ?? '', rationale: fields.Rationale, testRationale: fields['Test-Rationale'] };
+    const task: Task = { id: match[2]!, title: match[3]!, complete: match[1]!.toLowerCase() === 'x', path, line: index + 1, content: lines.slice(index, end).join('\n').trimEnd(), fields, requires: split(fields.Requires ?? ''), dependsOn: split(fields['Depends-On'] ?? ''), writeScopes: split(fields['Write-Scopes'] ?? ''), testMode: fields['Test-Mode'] as Task['testMode'], testScopes: split(fields['Test-Scopes'] ?? ''), testCommands: split(fields['Test-Commands'] ?? ''), acceptance: fields.Acceptance ?? '', rationale: fields.Rationale, testRationale: fields['Test-Rationale'] };
     if (tasks.some(t => t.id === task.id)) diagnostics.push(diagnostic('SPEC_DUPLICATE_ID', `重复任务 ${task.id}`, path, task.line));
     for (const list of [task.requires, task.dependsOn, task.writeScopes, task.testScopes, task.testCommands]) if (new Set(list).size !== list.length || list.includes('none')) diagnostics.push(diagnostic('TASK_LIST_INVALID', '列表不能重复或将 none 与 ID 混用', path, task.line));
     if (!task.requires.length && !task.rationale) diagnostics.push(diagnostic('TASK_RATIONALE_REQUIRED', 'Requires: none 必须给出 Rationale', path, task.line));
     if (task.testMode === 'tdd' && (!task.testScopes.length || !task.testCommands.length)) diagnostics.push(diagnostic('TASK_TDD_REQUIREMENTS', 'tdd 必须有测试范围和命令', path, task.line));
     if (task.testMode === 'verification' && !task.testCommands.length) diagnostics.push(diagnostic('TASK_VERIFICATION_COMMAND_REQUIRED', 'verification 必须有命令', path, task.line));
     if (['verification', 'exempt'].includes(task.testMode) && !task.testRationale) diagnostics.push(diagnostic('TASK_TEST_RATIONALE_REQUIRED', 'verification/exempt 必须有 Test-Rationale', path, task.line));
-    if (task.testMode === 'exempt' && !fields['Alternative-Acceptance'] && !/替代|alternative|验收|acceptance/i.test(task.testRationale ?? '')) diagnostics.push(diagnostic('TASK_ALTERNATIVE_ACCEPTANCE_REQUIRED', 'exempt 必须关联替代验收计划', path, task.line));
+    if (task.testMode === 'exempt' && !fields['Alternative-Acceptance']?.trim()) diagnostics.push(diagnostic('TASK_ALTERNATIVE_ACCEPTANCE_REQUIRED', 'exempt 必须在 Alternative-Acceptance 显式关联替代验收计划', path, task.line));
     tasks.push(task);
   }
   if (!tasks.length) diagnostics.push(diagnostic('TASK_REQUIRED', '至少需要一个任务', path));

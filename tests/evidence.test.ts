@@ -26,7 +26,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, commands
   await writeFile(path.join(root, 'source.txt'), 'initial\n');
   await mkdir(path.join(root, '.workflow/changes'), { recursive: true });
   await cp(path.join(sourceRoot, 'examples/change'), path.join(root, '.workflow/changes/session-timeout'), { recursive: true });
-  await writeFile(path.join(root, '.workflow/changes/session-timeout/tasks.md'), `# 任务\n\n## TASK-001 — 验证行为\n- Status: pending\n- Requires: REQ-SESSION-001\n- Depends-On: none\n- Write-Scopes: source.txt, tests/**\n- Test-Mode: tdd\n- Test-Scopes: tests/**\n- Test-Commands: ${commands.map(value => value.id).join(', ')}\n- Acceptance: 验证已声明行为\n`);
+  await writeFile(path.join(root, '.workflow/changes/session-timeout/tasks.md'), `# 任务\n\n## [ ] TASK-001 — 验证行为\n- Requires: REQ-SESSION-001\n- Depends-On: none\n- Write-Scopes: source.txt, tests/**\n- Test-Mode: tdd\n- Test-Scopes: tests/**\n- Test-Commands: ${commands.map(value => value.id).join(', ')}\n- Acceptance: 验证已声明行为\n`);
   await writeFile(path.join(root, '.workflow/config.yaml'), stringify({ formatVersion: 1, project: { id: 'fixture', name: 'Fixture' }, hosts: ['codex'], modules: [{ id: 'app', paths: ['source.txt', 'tests/**'], role: 'developer' }], git: { baseBranch: 'main' }, integration: { profile: 'local', mode: 'prepare' }, tracking: { required: false, providers: [] }, validation: { commands }, policy: {}, extensions: {} }));
   await git(root, 'add', '.'); await git(root, 'commit', '-qm', 'initial');
   const run = await createRun(root, { changeId: 'session-timeout', operationId: 'create' });

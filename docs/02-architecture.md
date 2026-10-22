@@ -51,11 +51,13 @@ workflow/
 │   ├── workflow/{SKILL,WORKFLOW}.md
 │   ├── roles/                      # 角色职责单一来源
 │   ├── hosts/                      # 注册/入口模板
-│   └── templates/                  # 自研规格与配置模板
+│   └── templates/                  # 初始化入口、协议、角色、Skill、规则及规格/配置模板
 ├── tests/{unit,contracts,integration,fixtures}/
 ├── examples/
 └── docs/
 ```
+
+初始化生成的 Markdown 使用独立模板文件维护，不把大段提示词嵌在 TypeScript 中；`assets/templates/installer/zh-CN/` 和 `assets/templates/installer/en/` 分别存放中英文版本。构建时将 `assets/templates/` 的内容嵌入单文件 runtime；安装后的项目不依赖源码仓或额外模板目录。
 
 ## 2. 依赖方向
 

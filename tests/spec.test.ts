@@ -12,7 +12,7 @@ const requirement = (operation = 'ADD', scenarios = '01', body = '系统应拒�
 const delta = (base: SpecDocument | null = null, op = 'ADD', scenarios = '01') => parseDelta(fm(base ? sha256(base.content) : null) + requirement(op, scenarios), 'delta.md');
 const metadata = () => parseMetadata('formatVersion: 1\nid: session-timeout\ntitle: 会话\nmodules: [app]\ndependsOn: []\n');
 const proposal = () => parseProposal('# Proposal\n\n## Problem\n会话过期问题\n## Goals\n认证\n## Scope\n会话\n## Non-goals\n业务数据\n## Acceptance\n场景通过\n## Rules\nnone：项目无适用长期规则\n## Open questions\nnone\n');
-const tasks = () => parseTasks('## TASK-001 — 实现认证\n- Status: pending\n- Requires: REQ-SESSION-001\n- Depends-On: none\n- Write-Scopes: src/session/**, tests/session/**\n- Test-Mode: tdd\n- Test-Scopes: tests/session/**\n- Test-Commands: app-test\n- Acceptance: 会话场景通过\n');
+const tasks = () => parseTasks('## [ ] TASK-001 — 实现认证\n- Requires: REQ-SESSION-001\n- Depends-On: none\n- Write-Scopes: src/session/**, tests/session/**\n- Test-Mode: tdd\n- Test-Scopes: tests/session/**\n- Test-Commands: app-test\n- Acceptance: 会话场景通过\n');
 function bundle(): ChangeBundle {
   return { projectRoot: '/project', changeId: 'session-timeout', metadata: metadata(), proposal: proposal(), design: { path: 'design.md', line: 1, content: '方案与验证' }, tasks: tasks(), deltas: [delta()], specs: [], history: emptyHistory(), archives: [], activeChanges: [], activeReferences: [], diagnostics: [], config: { modules: [{ id: 'app', paths: ['src/**', 'tests/**'] }], validation: { commands: [{ id: 'app-test' }] } } };
 }
@@ -70,14 +70,28 @@ test('raw UTF-8 baseline conflict includes CRLF differences and same capability 
   assert.ok(codes(planSync({ specs: [changed], deltas: [d] }).diagnostics).includes('SPEC_STALE_BASE'));
   assert.ok(codes(planSync({ specs: [base], deltas: [d, d] }).diagnostics).includes('SPEC_DUPLICATE_CAPABILITY'));
 });
-test('metadata, task semantics, unknown commands, scopes, cycles and status-independent plan fingerprint', () => {
+test('metadata, task semantics, unknown commands, scopes, cycles and checkbox-independent plan fingerprint', () => {
   const b = bundle(); assert.deepEqual(validateChange(b), []);
-  const changed = parseTasks(b.tasks!.content.replace('pending', 'done'));
+  const changed = parseTasks(b.tasks!.content.replace('## [ ] TASK-001', '## [x] TASK-001'));
+  assert.equal(changed.tasks[0]!.complete, true);
   assert.equal(taskPlanFingerprint(changed.tasks), taskPlanFingerprint(b.tasks!.tasks));
   b.tasks = parseTasks(b.tasks!.content.replace('Depends-On: none', 'Depends-On: TASK-001').replace('tests/session/**\n- Test-Commands', 'outside/**\n- Test-Commands').replace('app-test', 'unknown'));
   const errors = codes(validateChange(b));
   assert.ok(errors.includes('TASK_DEPENDENCY_CYCLE')); assert.ok(errors.includes('TASK_TEST_SCOPE_OUTSIDE_WRITE')); assert.ok(errors.includes('TASK_COMMAND_UNKNOWN'));
   assert.ok(codes(parseTasks(tasks().content.replace('Test-Mode: tdd', 'Test-Mode: exempt')).diagnostics).includes('TASK_TEST_RATIONALE_REQUIRED'));
+});
+test('exempt requires an explicit alternative acceptance field instead of rationale keywords', () => {
+  const content = tasks().content.replace('Test-Mode: tdd', 'Test-Mode: exempt') + '- Test-Rationale: 以人工替代验收判断交付\n';
+  assert.ok(codes(parseTasks(content).diagnostics).includes('TASK_ALTERNATIVE_ACCEPTANCE_REQUIRED'));
+  assert.ok(codes(parseTasks(content + '- Alternative-Acceptance:   \n').diagnostics).includes('TASK_ALTERNATIVE_ACCEPTANCE_REQUIRED'));
+  assert.deepEqual(parseTasks(content + '- Alternative-Acceptance: 人工执行 docs/acceptance.md 所列三项检查并记录结论\n').diagnostics, []);
+});
+test('task checklist is required and determines completion', () => {
+  const unchecked = tasks();
+  const checked = parseTasks(unchecked.content.replace('## [ ] TASK-001', '## [x] TASK-001'));
+  assert.deepEqual(unchecked.diagnostics, []); assert.deepEqual(checked.diagnostics, []);
+  assert.equal(unchecked.tasks[0]!.complete, false); assert.equal(checked.tasks[0]!.complete, true);
+  assert.ok(codes(parseTasks(unchecked.content.replace('## [ ] TASK-001', '## TASK-001')).diagnostics).includes('TASK_SYNTAX'));
 });
 test('spec rejects unresolved behavior, dangling rules and resolved questions without decision evidence', () => {
   const b = bundle();
@@ -92,6 +106,82 @@ test('integration fails closed on missing external approval/CR/Verify even if ta
   assert.equal(traceChange(b).entries[0]!.covered, false);
   b.integrationEvidence.scenarioEvidence[0]!.outcome = 'passed'; assert.deepEqual(validateChange(b, 'integration'), []);
   b.integrationEvidence.scenarioEvidence[0]!.evidenceId = 'placeholder'; assert.equal(traceChange(b).entries[0]!.covered, false);
+});
+test('REMOVE traces every original scenario and permits task audit references without reactivating IDs', () => {
+  const b = bundle(); const base = formal(delta(null, 'ADD', '01,02'));
+  b.specs = [base];
+  b.deltas = [parseDelta(fm(sha256(base.content)) + '## REMOVE REQ-SESSION-001 — 会话\n- Reason: 替换为新认证需求\n- Impact: 移除过期判断\n')];
+  assert.deepEqual(validateChange(b, 'spec'), []);
+  const trace = traceChange(b);
+  assert.deepEqual(trace.entries.map(e => ({ kind: e.kind, id: e.scenarioId, tasks: e.taskIds })), [
+    { kind: 'removal', id: 'SCN-SESSION-001-01', tasks: ['TASK-001'] },
+    { kind: 'removal', id: 'SCN-SESSION-001-02', tasks: ['TASK-001'] }
+  ]);
+  assert.ok(trace.entries.every(e => !e.covered));
+  b.integrationEvidence = { current: true, approval: true, codeReview: true, verification: true, scenarioEvidence: [] };
+  assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_MISSING_SCENARIO'));
+  b.integrationEvidence.scenarioEvidence = trace.entries.map(e => ({ scenarioId: e.scenarioId, taskId: 'TASK-001', purpose: 'removal', mode: 'manual', outcome: 'passed', evidenceId: `removed-${e.scenarioId}`, rationale: '已验证旧过期分支不可触发，访问行为已转交新认证流程' }));
+  assert.deepEqual(validateChange(b, 'integration'), []);
+  const plan = planSync({ specs: b.specs, deltas: b.deltas });
+  assert.equal(parseSpec(plan.writes[0]!.content).requirements.length, 0);
+  assert.equal(plan.removed.filter(r => r.kind === 'scenario').length, 2);
+  b.tasks = parseTasks(tasks().content.replace('Requires: REQ-SESSION-001', 'Requires: none') + '- Rationale: 只删除实现\n');
+  assert.ok(codes(validateChange(b, 'spec')).includes('TRACE_MISSING_TASK'));
+});
+test('UPDATE removal trace uses old scenarios alongside current behavior and requires purpose-specific evidence', () => {
+  const b = bundle(); const base = formal(delta(null, 'ADD', '01,02'));
+  b.specs = [base];
+  b.deltas = [parseDelta(delta(base, 'UPDATE', '01,03').content.replace('- Removed-Scenarios: none', '- Removed-Scenarios: SCN-SESSION-001-02\n- Removal-Reason: SCN-SESSION-001-02 — 替代为 SCN-SESSION-001-03'))];
+  assert.deepEqual(validateChange(b, 'spec'), []);
+  assert.deepEqual(traceChange(b).entries.map(e => `${e.kind}:${e.scenarioId}`), ['current:SCN-SESSION-001-01', 'current:SCN-SESSION-001-03', 'removal:SCN-SESSION-001-02']);
+  b.integrationEvidence = { current: true, approval: true, codeReview: true, verification: true, scenarioEvidence: ['01', '02', '03'].map(id => ({ scenarioId: `SCN-SESSION-001-${id}`, taskId: 'TASK-001', mode: 'automated', outcome: 'passed', evidenceId: `test-${id}` })) };
+  assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_MISSING_SCENARIO'));
+  assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_DANGLING_EVIDENCE'));
+  Object.assign(b.integrationEvidence.scenarioEvidence[1]!, { purpose: 'removal', rationale: '旧入口已拒绝并验证新入口满足替代行为' });
+  assert.deepEqual(validateChange(b, 'integration'), []);
+  b.integrationEvidence.scenarioEvidence[1]!.mode = 'not-applicable';
+  assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_MISSING_SCENARIO'));
+  b.integrationEvidence.scenarioEvidence[1]!.mode = 'manual'; delete b.integrationEvidence.scenarioEvidence[1]!.rationale;
+  assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_MISSING_SCENARIO'));
+});
+test('removal evidence cannot cover retained behavior, wrong task, failed outcome or placeholder result', () => {
+  const b = bundle();
+  b.integrationEvidence = { current: true, approval: true, codeReview: true, verification: true, scenarioEvidence: [{ scenarioId: 'SCN-SESSION-001-01', taskId: 'TASK-001', purpose: 'removal', mode: 'manual', outcome: 'passed', evidenceId: 'remove-old', rationale: '旧行为已移除' }] };
+  assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_DANGLING_EVIDENCE'));
+  assert.equal(traceChange(b).entries[0]!.covered, false);
+  const base = formal(); b.specs = [base];
+  b.deltas = [parseDelta(fm(sha256(base.content)) + '## REMOVE REQ-SESSION-001 — 会话\n- Reason: 移除旧认证\n- Impact: 删除旧入口\n')];
+  assert.deepEqual(validateChange(b, 'integration'), []);
+  const evidence = b.integrationEvidence.scenarioEvidence[0]!;
+  evidence.taskId = 'TASK-999'; assert.ok(codes(validateChange(b, 'integration')).includes('TRACE_DANGLING_EVIDENCE'));
+  evidence.taskId = 'TASK-001'; evidence.outcome = 'failed'; assert.equal(traceChange(b).entries[0]!.covered, false);
+  evidence.outcome = 'passed'; evidence.evidenceId = 'placeholder'; assert.equal(traceChange(b).entries[0]!.covered, false);
+});
+test('removal rejects stale baseline, missing targets and false Removed-Scenarios references', () => {
+  const b = bundle(); const base = formal(delta(null, 'ADD', '01,02')); b.specs = [base];
+  b.deltas = [parseDelta(fm(sha256(base.content)) + '## REMOVE REQ-SESSION-001 — 会话\n- Reason: 移除旧认证\n- Impact: 删除旧入口\n')];
+  b.specs = [parseSpec(base.content.replace('要求认证', '二次认证'))];
+  assert.ok(codes(validateChange(b)).includes('SPEC_STALE_BASE'));
+  b.specs = []; b.deltas = [parseDelta(fm(null) + '## REMOVE REQ-SESSION-001 — 会话\n- Reason: 移除旧认证\n- Impact: 删除旧入口\n')];
+  const missing = codes(validateChange(b)); assert.ok(missing.includes('SPEC_TARGET_MISSING')); assert.ok(missing.includes('TASK_REQUIREMENT_MISSING'));
+  b.specs = [base]; b.deltas = [parseDelta(delta(base, 'UPDATE', '01').content.replace('- Removed-Scenarios: none', '- Removed-Scenarios: SCN-SESSION-001-99\n- Removal-Reason: SCN-SESSION-001-99 — 不存在'))];
+  assert.ok(codes(validateChange(b)).includes('SPEC_SCENARIO_REMOVAL_MISMATCH'));
+  assert.equal(traceChange(b).entries.find(e => e.kind === 'removal')?.scenarioId, 'SCN-SESSION-001-02');
+  b.tasks = parseTasks(tasks().content.replace('REQ-SESSION-001', 'REQ-SESSION-999'));
+  assert.ok(codes(validateChange(b)).includes('TASK_REQUIREMENT_MISSING'));
+  assert.ok(codes(validateChange(b)).includes('TRACE_MISSING_TASK'));
+});
+test('archived removals remain tombstones and do not authorize later task references or ADD reuse', () => {
+  const removed = bundle(); const base = formal(); removed.specs = [base];
+  removed.deltas = [parseDelta(fm(sha256(base.content)) + '## REMOVE REQ-SESSION-001 — 会话\n- Reason: 删除旧认证\n- Impact: 删除旧入口\n')];
+  const archive = planArchive({ bundle: removed, transactionId: 'remove-txn' });
+  const b = bundle(); b.changeId = 'new-session'; b.metadata.value.id = b.changeId;
+  b.history = archive.history; b.archives = [{ path: archive.metadata.archivePath, content: archive.metadataContent, metadata: archive.metadata }];
+  b.specs = archive.sync.writes.map(w => parseSpec(w.content, w.path));
+  b.deltas = []; b.proposal!.content += '\n仅 docs 维护，无行为变化。';
+  assert.ok(codes(validateChange(b)).includes('TASK_REQUIREMENT_MISSING'));
+  b.deltas = [delta(b.specs[0]!)];
+  assert.ok(codes(validateChange(b)).includes('SPEC_HISTORY_ID_REUSED'));
 });
 test('change dependencies need current integration facts; historical directory alone is insufficient', () => {
   const b = bundle(); b.metadata.value.dependsOn = ['base-change']; b.activeChanges.push({ ...metadata().value, id: 'base-change', dependsOn: [] });

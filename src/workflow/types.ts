@@ -4,11 +4,16 @@ export type PhaseStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'susp
 export type TaskStatus = 'pending' | 'running' | 'done' | 'blocked';
 export type Fingerprints = { source: string; spec: string; plan: string; policy: string; environment: string };
 export interface PhaseRecord { status: PhaseStatus; evidenceIds: string[]; invalidatedBy?: string[] }
-export type Role = 'architect' | 'developer-red' | 'developer-green' | 'tester' | 'reviewer' | 'verifier';
+export type Role = 'architect' | 'developer-red' | 'developer-green' | 'developer-verification' | 'developer-exempt' | 'tester' | 'reviewer' | 'verifier';
 export interface Dispatch {
-  id: string; attemptId: string; taskId: string; role: Role; status: 'planned' | 'attached' | 'completed' | 'failed';
+  id: string; attemptId: string; scope?: 'change' | 'task'; taskId?: string; role: Role; status: 'planned' | 'attached' | 'completed' | 'failed';
   allowedPaths: string[]; forbiddenPaths: string[]; requirementIds: string[]; scenarioIds: string[];
   startHead: string; fingerprints: Fingerprints; agentId?: string; cycleId?: string; report?: DispatchReport;
+  evidenceBoundary?: number;
+  evidenceSessionId?: string;
+  outputReceipt?: { manifestEvidenceId: string; inputFingerprints: Fingerprints; outputFingerprints: Fingerprints; changedPaths: string[]; evidenceIds: string[]; invalidatedPhases: Phase[] };
+  testMode?: 'tdd' | 'verification' | 'exempt';
+  taskPlan?: { commandPlanDigest?: string; testCommands: string[]; acceptance: string; testRationale?: string; alternativeAcceptance?: string };
 }
 export interface DispatchReport {
   protocolVersion: 1; runId: string; dispatchId: string; attemptId: string;

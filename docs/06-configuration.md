@@ -9,7 +9,7 @@
 | formatVersion | 必需，当前为 1 |
 | project.id | 必需，稳定逻辑标识，不能因移动目录改变 |
 | project.name | 人类可读项目名 |
-| project.authoritativeDocs | 权威文档的项目相对路径 |
+| project.authoritativeDocs | 权威文档的项目相对路径；内容保守纳入 policy 指纹，变化从 architect 重核 |
 | project.rules | 默认 `.workflow/rules.md` |
 | modules | 按稳定 ID 声明代码范围与角色；技术栈不内置 |
 | hosts | 所选宿主 ID 列表：codex、claude、opencode、pi；安装与原生执行能力分别检查 |

@@ -10,12 +10,14 @@ import { changeId, listChanges, newChange } from './changes.js';
 import { loadChange, validateChange, traceChange, planSync } from '../spec/index.js';
 import { loadConfig, pathMatches, resolveProjectPath } from '../project/index.js';
 import { initProject, doctor, planUpgrade, planUninstall, applyInstallPlan, replayInstallOperation, type InstallPlan } from '../installer/index.js';
+import { resolveTemplateLanguage, type TemplateLanguage } from '../installer/render-template.js';
 import { createRun, readRun, listRuns, assertStoreReadable, heartbeatChangeLock, mutateRun, resumePlan, locateRepository, captureFingerprints } from '../runtime/index.js';
 import { git } from '../repository/git.js';
 import { resolveBaseRef, assertChangeBranch } from '../repository/base.js';
 import { prepareRunDispatch, collectRunDispatch } from '../application/dispatch.js';
 import type { Role } from '../workflow/index.js';
 import { executeTaskBaseline, loadCommandEvidence, type StoredCommandEvidence } from '../runtime/evidence.js';
+import { auditRunDispatchOutput } from '../application/output.js';
 import { previewRebaseline } from '../application/rebaseline.js';
 
 declare const __WORKFLOW_VERSION__: string;
@@ -33,10 +35,23 @@ async function selectHosts(): Promise<string[]> {
   } finally { prompt.close(); }
 }
 
+async function selectLanguage(defaultLanguage: TemplateLanguage): Promise<TemplateLanguage | undefined> {
+  if (!stdin.isTTY || !stdout.isTTY) return undefined;
+  const prompt = createInterface({ input: stdin, output: stdout });
+  try {
+    const defaultChoice = defaultLanguage === 'en' ? '2' : '1';
+    const answer = (await prompt.question(`选择初始化内容的语言：\n  1) 中文\n  2) English\n请输入 1 或 2 [默认 ${defaultChoice}]：`)).trim().toLowerCase();
+    if (!answer) return defaultLanguage;
+    if (answer === '1' || answer === 'zh-cn' || answer === 'zh') return 'zh-CN';
+    if (answer === '2' || answer === 'en' || answer === 'english') return 'en';
+    throw new WorkflowError('CLI_ARGUMENT', '语言选项仅支持 zh-CN 或 en。');
+  } finally { prompt.close(); }
+}
+
 const help = `Workflow ${version} — 受限预览 / Node.js 22.12+
 
 已实现的 CLI：
-  init [--hosts codex|claude|codex,claude] [--dry-run]
+  init [--hosts codex|claude|codex,claude] [--language zh-CN|en] [--dry-run]
   doctor
   upgrade|uninstall [--apply --plan-digest HASH --operation-id ID]
   change new ID --operation-id ID
@@ -49,7 +64,9 @@ const help = `Workflow ${version} — 受限预览 / Node.js 22.12+
   status ID [--run ID]
   resume-plan ID --run ID
   lock heartbeat ID --run ID --owner TOKEN --expected-revision N --operation-id ID
-  dispatch prepare ID --task TASK-ID --role ROLE --run ID --owner TOKEN --expected-revision N --operation-id ID
+  dispatch prepare ID [--task TASK-ID] --role ROLE --run ID --owner TOKEN --expected-revision N --operation-id ID
+    ROLE: architect (task optional), developer-red, developer-green, developer-verification, developer-exempt, tester, reviewer, verifier
+  dispatch audit ID --run ID --dispatch ID --attempt ID
   dispatch collect ID --dispatch ID --attempt ID --report PATH --run ID --owner TOKEN --expected-revision N --operation-id ID
   test-cycle baseline ID --task TASK-ID --run ID --owner TOKEN --expected-revision N --operation-id ID
   evidence show ID --run ID --operation-id COMMAND-OPERATION-ID
@@ -94,10 +111,13 @@ async function command(args: Arguments): Promise<Outcome> {
   if (args.flags.version) { allowFlags(args, ['version']); requireWords(args, 0); return { data: { version } }; }
   const name = args.words[0];
   if (name === 'init') {
-    requireWords(args, 1); allowFlags(args, ['hosts', 'profile', 'dry-run', 'operation-id']);
+    requireWords(args, 1); allowFlags(args, ['hosts', 'language', 'profile', 'dry-run', 'operation-id']);
     assert(!args.flags.profile || args.flags.profile === 'local', 'PROFILE_UNSUPPORTED', 'Only the local initialization profile is implemented', 5);
     const hosts = typeof args.flags.hosts === 'string' ? args.flags.hosts.split(',') : await selectHosts();
-    const data = await initProject(args.project, { hosts, dryRun: !!args.flags['dry-run'], operationId: args.flags['dry-run'] ? undefined : String(args.flags['operation-id'] ?? `init-${randomUUID()}`), runtimePath: fileURLToPath(import.meta.url) });
+    let language: TemplateLanguage | undefined;
+    if (typeof args.flags.language === 'string') language = resolveTemplateLanguage(args.flags.language);
+    else if (stdin.isTTY && stdout.isTTY) language = await selectLanguage((await doctor(args.project)).language);
+    const data = await initProject(args.project, { hosts, language, dryRun: !!args.flags['dry-run'], operationId: args.flags['dry-run'] ? undefined : String(args.flags['operation-id'] ?? `init-${randomUUID()}`), runtimePath: fileURLToPath(import.meta.url) });
     return { data: 'changes' in data ? planSummary(data) : data };
   }
   if (name === 'doctor') {
@@ -200,8 +220,14 @@ async function command(args: Arguments): Promise<Outcome> {
     requireWords(args, 3); allowFlags(args, ['run', 'owner', 'expected-revision', 'operation-id', 'task', 'role']);
     const id = changeId(args.words[2]);
     const run = await runForChange(root, args, id);
-    const data = await prepareRunDispatch(root, id, run.runId, await writeCredentials(args), { taskId: requireFlag(args, 'task'), role: requireFlag(args, 'role') as Role });
+    const data = await prepareRunDispatch(root, id, run.runId, await writeCredentials(args), { taskId: typeof args.flags.task === 'string' ? args.flags.task : undefined, role: requireFlag(args, 'role') as Role });
     return { data };
+  }
+  if (name === 'dispatch' && args.words[1] === 'audit') {
+    requireWords(args, 3); allowFlags(args, ['run', 'dispatch', 'attempt']);
+    const id = changeId(args.words[2]); const run = await runForChange(root, args, id);
+    const data = await auditRunDispatchOutput(root, id, run.runId, { dispatchId: requireFlag(args, 'dispatch'), attemptId: requireFlag(args, 'attempt'), runtime: { version, sha256: sha256(await readFile(fileURLToPath(import.meta.url))) } });
+    return { data, diagnostics: data.diagnostics, exitCode: data.deterministicChecksPassed ? 0 : 3 };
   }
   if (name === 'dispatch' && args.words[1] === 'collect') {
     requireWords(args, 3); allowFlags(args, ['run', 'owner', 'expected-revision', 'operation-id', 'dispatch', 'attempt', 'report']);

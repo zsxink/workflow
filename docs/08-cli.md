@@ -6,7 +6,7 @@
 
 | 命令 | 用途 | 副作用 |
 | --- | --- | --- |
-| `workflow init [--hosts codex,claude,opencode,pi] [--profile local]` | 初始化接入 | 按选择安装四种宿主入口；安装不等于原生执行就绪，支持 dry-run |
+| `workflow init [--hosts codex,claude,opencode,pi] [--profile local] [--language zh-CN\|en]` | 初始化接入 | 按选择安装宿主入口和对应语言模板；默认中文，安装不等于原生执行就绪，支持 dry-run |
 | `workflow doctor` | 安装、配置、能力检查 | 只读，不启动模型 |
 | `workflow upgrade [--to version]` | 项目版本升级 | 默认计划；apply 显式应用 |
 | `workflow uninstall` | 移除管理资产 | 默认计划；保留用户数据 |
@@ -24,6 +24,7 @@
 | `workflow dispatch prepare ...` | 生成子任务包 | planned attempt |
 | `workflow dispatch attach ... --agent-id <id>` | 记录已派发 Agent | 关联真实派发事实 |
 | `workflow dispatch collect ... --report <file>` | 校验当前 attempt 的 JSON 回报 | 保存解析与关联结果；不因 DONE 自动通过阶段 |
+| `workflow dispatch audit <change> --run <id> --dispatch <id> --attempt <id>` | 从准备回执与真实工作树核查全部产物差异 | 只读诊断；acceptedOutput/executionReady 均为 false，不应用接收转换 |
 | `workflow test-cycle baseline <change> --task <id>` | 运行开 cycle 前的计划检查 | 执行器采集定向/回归结果及快照，不因采集成功声称测试通过 |
 | `workflow test-cycle open <change> --task <id> --baseline <evidence-id> [--mode new-test\|existing-failure]` | 在实现前固定 TDD 基线 | 主会话建立 cycle、记录测试范围和命令计划 |
 | `workflow test-cycle run <cycle> --step red\|green\|refactor --command <id>` | 执行任务内测试并采集证据 | 主会话调用确定性执行器；校验步骤、快照和命令，Red 另需主会话接受失败原因 |
@@ -79,7 +80,7 @@ test-cycle run 对 Red 分别返回命令的真实 exitCode 和是否待接受/�
 | 7 | 未完成事务或需要恢复 |
 | 1 | 未分类内部错误 |
 
-`status` 成功读取一个失败 run 仍可 exit 0，不能把退出码解释为该 run 成功；`validate` 不通过返回 2/3。`doctor` 能完整检查但能力不足时返回 5，并清晰列 installed=true、executionReady=false。
+`status` 成功读取一个失败 run 仍可 exit 0，不能把退出码解释为该 run 成功；`validate` 不通过返回 2/3。`doctor` 能完整检查安装和 `.workflow/host-evidence.json`；缺少或过期的宿主证据时返回 5，并列出逐宿主能力及依据。`hostExecutionReady` 不等于完整工作流就绪；受限预览没有阶段成功证据入口时，`workflowLifecycleReady=false` 且项目级 `executionReady=false`。
 
 ## 4. 计划与应用
 
@@ -95,7 +96,7 @@ baseline 证据属于 task，早于 cycle；open 重查源码/测试/命令/环�
 
 Red 接受使用 `workflow test-cycle accept <cycle> --evidence <file>`，适用同一 run 写凭据；引用执行器生成的 Red 命令证据、失败断言诊断、scenario IDs 和主会话接受理由。拒绝旧 cycle、基线已变或非业务断言失败；工具只核查结构/事实，语义结论由后续独立审查复核。
 
-`dispatch prepare/attach/collect` 均要求 change/run/task/attempt 关联；prepare 提供 `--task <id> --role <id>`，返回 dispatch/attempt ID；attach/collect 提供 `--dispatch <id> --attempt <id>` 及目录表中的 agent-id/report。attach 的原生工具来源记录与结果引用必须可核查，不能把任意字符串作为真实身份。
+`dispatch prepare` 返回 dispatch/attempt ID。任务级派发提供 `--task <id> --role <id>`；Architect 可省略 --task 创建 change 级派发，回报 taskIds 为 []。非 TDD 角色为 developer-verification / developer-exempt，模式必须与真实任务一致，exempt 另需显式 Alternative-Acceptance。attach/collect 提供 `--dispatch <id> --attempt <id>` 及目录表中的 agent-id/report。attach 的原生工具来源记录与结果引用必须可核查，不能把任意字符串作为真实身份。当前准备入口不开放真实宿主 attach 或阶段成功。
 
 `approve` 的证据记录授权主体、宿主/会话、用户消息或交互记录引用、scope、语义指纹及时间。可读取宿主记录时核对来源；不可读取时标 provenance-unverified 并挂起授权门禁，提供用户在当前会话确认并留存可引用记录的路径。主会话自写的“用户同意”不能形成新的授权；V1 不提供对恶意本地主机的签名认证。
 

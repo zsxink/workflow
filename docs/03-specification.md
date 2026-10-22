@@ -16,6 +16,10 @@
 
 Markdown 是语义内容的唯一来源。可生成 JSON 索引缓存，但缓存记录输入摘要，不能独立修改或作为冲突时的第二权威源。机器语法字段使用英文，正文允许中文。
 
+变更模板的填写要求：proposal 说明现状证据、行为范围、非目标、影响能力及验收场景；design 记录方案理由与备选、数据/状态流、兼容与回滚、路径所有权、验证计划和阻塞风险；tasks 按可独立验收的结果拆分，显式声明依赖与 Test-* 字段。按实际影响填写，不适用项写明理由，不为凑齐模板虚构需求、命令或任务。无行为变化时在 proposal 说明零 delta 的依据，并按本规范记录维护任务的 Rationale 与测试适用性。上述内容指引不增加机器字段，也不改变门禁；生成草案必须替换示例 ID、路径和命令后才能进入规格检查。
+
+任务拆分应使 Leader 能从 design/tasks 直接组装[派发上下文](04-workflow.md#给子-agent-的最小完整上下文)：目标与非目标、上游产物、路径所有权、验证证据和退出条件。任务的 `Depends-On` 表达当前 change 内的先后关系，`change.yaml` 的 `dependsOn` 表达跨 change 的集成前提；二者不能互换。共享生成物、公共接口和锁文件即使位于不同 worktree，也需在 design 中说明语义依赖与交接，不能仅凭目录不同承诺并行。上述内容写入已有章节和 Acceptance，不增加任务机器字段或运行状态。
+
 ## 2. 标识符
 
 - change/capability/module：小写 kebab-case，禁止路径分隔、`.`、`..`、控制字符和大小写碰撞。
@@ -81,8 +85,7 @@ proposal 的 Rules 小节使用 `- RULE-001: <本次如何满足及验证引用>
 ## 6. 任务格式和追踪
 
 ```markdown
-## TASK-001 — 实现会话到期判定
-- Status: pending
+## [ ] TASK-001 — 实现会话到期判定
 - Requires: REQ-SESSION-001
 - Depends-On: none
 - Write-Scopes: src/session/**, tests/session/**
@@ -92,15 +95,17 @@ proposal 的 Rules 小节使用 `- RULE-001: <本次如何满足及验证引用>
 - Acceptance: SCN-SESSION-001-01 有有效 Red/Green 与重构检查证据，判定使用项目时钟接口
 ```
 
-Status 只接受 pending/running/done/blocked。主会话唯一写入任务状态；子 Agent 回报证据。开发任务必须引用需求；纯维护任务可 `Requires: none`，同时写 `Rationale:` 解释适用性。依赖不能形成环，不能引用不存在的任务。
+任务标题必须以复选框标记完成状态：`[ ]` 未完成、`[x]` 已完成。任务状态只用于清单展示；开发任务必须引用需求，纯维护任务可 `Requires: none`，同时写 `Rationale:` 解释适用性。依赖不能形成环，不能引用不存在的任务。
 
 每个任务必填 Test-Mode（tdd/verification/exempt）、Test-Scopes、Test-Commands；范围或命令为空写 none。Test-Scopes 必须为 Write-Scopes 子集，Test-Commands 引用项目声明命令。tdd 必须有非空测试范围与命令；verification 必须有命令；verification/exempt 必须补 Test-Rationale，exempt 另关联明确的替代验收计划。可自动验证的行为变更及 Bug 修复使用 tdd；纯重构先补齐特征测试并通过，再以 verification 重构和回归；独立覆盖任务及无业务行为的骨架准备也可用 verification。spec-gate 审查适用性，Developer 不得在失败后自行改为例外。完整时序见 [TDD 与交付](14-tdd-and-delivery.md)。
 
-TASK 内容及依赖属于计划指纹，Status 是显示状态，归一化后不影响计划指纹。done 不是完成证据；运行引擎要求当前 run 中可核实的提交、路径审计和验收结论。手改为 done 不会使阶段自动通过。
+任务标题前的复选框是完成状态的唯一文本表示：未完成使用 `[ ]`，完成后使用 `[x]`。它会显示在任务清单中，但不属于计划指纹；勾选本身不是完成证据。运行引擎仍要求当前 run 中可核实的提交、路径审计和验收结论，手动勾选不会使阶段自动通过。
+
+exempt 必须用显式 `Alternative-Acceptance` 字段填写替代验收步骤、责任方和所需材料；仅 Test-Rationale 中出现“验收”等关键词不算完整计划。该字段与其他任务计划一起绑定派发，不构成已批准或已验收事实。
 
 tdd 任务验收还需关联 cycle 的 Red/Green/Refactor 证据；Red 的预期失败不表示任务失败，也不允许跳过最终 Green。任务中的 Test-* 字段属于计划语义，修改会使相应派发/验证失效。cycle 和命令的机器进度不写回规格作为第二状态源。
 
-Tester 生成 `scenario → task → verification evidence` 映射，标记 automated/manual/not-applicable。每个变更场景都需映射；manual 未取得记录的验收结论时不可报告通过；not-applicable 必须有依据，不能用来跳过已批准行为。
+Tester 生成 `scenario → task → verification evidence` 映射，标记 automated/manual/not-applicable。每个新增/更新场景都需映射；删除需求/场景还须以原 ID 和删除理由核对移除或替代行为的证据，不能只验证剩余场景。删除项是历史审计引用，不因此恢复成有效需求。本次真实 REMOVE 的原 REQ 允许在 Requires 中作为删除任务引用，其他历史删除 ID 仍拒绝。trace 用 kind: current/removal 区分：REMOVE 从同 capability 原规格读取全部场景，UPDATE 的 Removed-Scenarios 读取对应旧场景。ScenarioEvidence 的 purpose 省略或 current 对应现行行为；删除验收必须显式 purpose: removal、automated/manual、passed，并提供非空 rationale 说明移除或替代验收。普通通过或 not-applicable 不能代替删除证据；spec gate 也要求删除项关联任务。manual 未取得真实验收记录时不可报告通过。
 
 ## 7. 校验层次
 
