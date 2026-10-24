@@ -2,7 +2,7 @@ import picomatch from 'picomatch';
 import { assert, WorkflowError, type Diagnostic } from '../shared/errors.js';
 import { sha256, stableStringify } from '../shared/hash.js';
 import type { ManifestEntry } from '../runtime/fingerprints.js';
-import { assertObservedCommand, commandPlanDigest, currentEvidenceSession } from './evidence.js';
+import { assertObservedCommand, currentEvidenceSession } from './evidence.js';
 import type { ValidationCommand } from '../project/index.js';
 import { parseDispatchReport, validRelativePath } from './dispatch.js';
 import { phases, type Phase, type CommandEvidence, type Fingerprints, type WorkflowState } from './types.js';
@@ -118,12 +118,13 @@ export function auditDispatchOutput(input: OutputAuditInput): OutputAudit {
   if (!same(records.map(record => record.id).sort(), [...evidenceIds].sort()) || new Set(records.map(record => record.id)).size !== records.length) error('OUTPUT_EVIDENCE_INCOMPLETE', '必须提供回报逐项引用的真实命令证据，不能以证据 ID 代替采集记录');
   if (d?.testMode === 'exempt' || d?.role === 'developer-exempt') error('OUTPUT_ALTERNATIVE_ACCEPTANCE_UNVERIFIED', '豁免理由和 manifest 不能证明替代验收已执行；当前尚无可核查替代验收来源');
   if (records.length && (!input.commands?.length || new Set(input.commands.map(command => command.id)).size !== input.commands.length)) error('OUTPUT_COMMAND_DEFINITIONS_REQUIRED', '需要应用从当前项目配置选定的完整命令定义，不能只核对命令 ID');
-  if (records.length && (!d?.taskPlan?.commandPlanDigest || d.taskPlan.commandPlanDigest !== commandPlanDigest(input.commands ?? []))) error('OUTPUT_COMMAND_PLAN_DIGEST', '命令定义必须匹配派发时绑定的完整计划摘要');
+  if (records.length && (!d?.taskPlan?.commandPlanDigest || d.taskPlan.commandPlanDigest !== sha256(stableStringify(input.commands ?? [])))) error('OUTPUT_COMMAND_PLAN_DIGEST', '命令定义必须匹配派发时绑定的完整计划摘要');
   for (const record of records) {
     if (d?.evidenceSessionId !== currentEvidenceSession()) error('OUTPUT_EVIDENCE_SESSION', '当前进程不能认证另一进程的派发时序，须按恢复协议重新准备');
     if (!d?.evidenceBoundary || record.startedSequence <= d.evidenceBoundary) error('OUTPUT_EVIDENCE_BEFORE_ATTEMPT', '命令必须在当前 attempt 准备边界之后执行，旧派发无边界时需重新准备');
     const declared = input.commands?.find(command => command.id === record.commandId);
-    if (!declared || !same(record.argv, [declared.executable, ...declared.args]) || record.cwd !== declared.cwd || record.commandPlanDigest !== commandPlanDigest(input.commands!)) error('OUTPUT_COMMAND_DEFINITION', '真实执行的 argv/cwd/计划摘要不匹配当前项目声明');
+    const expectedDigest = sha256(stableStringify(declared!));
+    if (!declared || !same(record.argv, [declared.executable, ...declared.args]) || record.cwd !== declared.cwd || record.commandPlanDigest !== expectedDigest) error('OUTPUT_COMMAND_DEFINITION', '真实执行的 argv/cwd/计划摘要不匹配当前项目声明');
     try { assertObservedCommand(record); }
     catch (cause) { error(cause instanceof WorkflowError ? cause.code : 'OUTPUT_EVIDENCE_INVALID', '命令证据未通过执行器来源核查'); }
     if (!d || record.runId !== input.state.runId || record.taskId !== d.taskId || record.head !== input.current.head || !same(record.after, input.current.fingerprints) || record.cycleId !== d.cycleId) error('OUTPUT_EVIDENCE_STALE', '命令证据不属于当前 run/task/cycle/HEAD/产物快照');

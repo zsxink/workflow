@@ -6,7 +6,7 @@ import { loadConfig, type ProjectConfig } from '../project/index.js';
 import { loadChange, validateChange, traceChange } from '../spec/index.js';
 import { captureFingerprints, readRun, mutateRun, type MutationInput, type RunState } from '../runtime/index.js';
 import { git } from '../repository/git.js';
-import { createWorkflowState, prepareDispatch, collectDispatchReport, parseDispatchReport, type Role, type WorkflowState, type Fingerprints, commandPlanDigest } from '../workflow/index.js';
+import { createWorkflowState, prepareDispatch, collectDispatchReport, parseDispatchReport, type Role, type WorkflowState, type Fingerprints } from '../workflow/index.js';
 
 function workflow(run: RunState): WorkflowState {
   if (!run.workflow) return createWorkflowState(run.runId);
@@ -32,7 +32,8 @@ export async function prepareRunDispatch(project: string, changeId: string, runI
   const task = input.taskId === undefined ? undefined : bundle.tasks?.tasks.find(task => task.id === input.taskId);
   assert(input.taskId === undefined || task, 'DISPATCH_TASK_UNKNOWN', 'Task must exist in current change');
   const requirementIds = task?.requires ?? [...new Set(bundle.deltas.flatMap(delta => delta.requirements.map(req => req.id)))];
-  const taskPlan = task ? { commandPlanDigest: commandPlanDigest(task.testCommands.map(id => config.validation.commands.find(command => command.id === id)!)), testCommands: task.testCommands, acceptance: task.acceptance, testRationale: task.testRationale, alternativeAcceptance: task.fields['Alternative-Acceptance'] } : undefined;
+  const commands = task ? task.testCommands.map(id => config.validation.commands.find(command => command.id === id)!) : [];
+  const taskPlan = task ? { commandPlanDigest: sha256(stableStringify(commands)), testCommands: task.testCommands, acceptance: task.acceptance, testRationale: task.testRationale, alternativeAcceptance: task.fields['Alternative-Acceptance'] } : undefined;
   const capture = await captureFingerprints(project, { runtime: credentials.runtime });
   const fingerprints: Fingerprints = { source: capture.sourceFingerprint, spec: capture.specFingerprint, plan: capture.planFingerprint, policy: capture.policyFingerprint, environment: environmentDigest(config) };
   const head = (await git(project, ['rev-parse', '--verify', 'HEAD'])).trim();

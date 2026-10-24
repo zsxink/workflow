@@ -11,7 +11,7 @@ import {
   type ExecutionSnapshot, type WorkflowState, type DispatchReport, type Fingerprints,
 } from '../src/workflow/index.js';
 import type { ValidationCommand } from '../src/project/index.js';
-import { sha256 } from '../src/shared/hash.js';
+import { sha256, stableStringify } from '../src/shared/hash.js';
 const fp: Fingerprints = { source: 's', spec: 'p', plan: 'l', policy: 'r', environment: 'e' };
 const head = 'a'.repeat(40);
 function code(code: string) { return (e: unknown) => (e as { code: string }).code === code; }
@@ -75,7 +75,7 @@ async function fixture() {
     const implementationDigest = sha256(await readFile(path.join(root, 'implementation.mjs'))); const testDigest = sha256(await readFile(path.join(root, 'behavior.mjs')));
     return { fingerprints: { ...fp, source: sha256(implementationDigest + testDigest) }, head, implementationDigest, testDigest, environmentDigest: fp.environment };
   };
-  const capture = (step: 'baseline' | 'red' | 'green' | 'refactor' | 'verify', cycleId?: string) => captureCommandEvidence(root, command, { runId: 'run-tdd', taskId: 'TASK-001', cycleId, step, commandPlanDigest: digest }, snapshot);
+  const capture = (step: 'baseline' | 'red' | 'green' | 'refactor' | 'verify', cycleId?: string) => captureCommandEvidence(root, command, { runId: 'run-tdd', taskId: 'TASK-001', cycleId, step }, snapshot);
   const baseline = await capture('baseline'); let state = createWorkflowState('run-tdd', baseline.before);
   const b = createTestBaseline(state, 'TASK-001', [baseline], ['unit']);
   const opened = openTestCycle(state, { baseline: b, snapshot: await snapshot(), scenarioIds: ['SCN-001'], testScopes: ['behavior.mjs'], implementationScopes: ['implementation.mjs'] }); state = opened.state;
@@ -101,7 +101,7 @@ test('real Red → Green pairing; forged records and changed assertions rejected
     state = completeRefactorWithoutChanges(state, f.cycle.id, '实现只有常量替换，无需重构', await f.snapshot());
     assert.equal(state.cycles[0].status, 'complete');
     const verify = await f.capture('verify');
-    assert.equal(assessVerification({ runId: 'run-tdd', evidence: [verify], commandIds: ['unit'], fingerprints: (await f.snapshot()).fingerprints, head, planDigest: f.digest }).ok, true);
+    assert.equal(assessVerification({ runId: 'run-tdd', evidence: [verify], commandIds: ['unit'], fingerprints: (await f.snapshot()).fingerprints, head, planDigest: sha256(stableStringify(f.command)) }).ok, true);
     assert.throws(() => assessVerification({ runId: 'run-tdd', evidence: [verify], commandIds: ['unit', 'lint'], fingerprints: verify.after, head, planDigest: f.digest }), code('VERIFY_INCOMPLETE'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });

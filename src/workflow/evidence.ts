@@ -10,12 +10,13 @@ export function currentEvidenceSession(): string { return observationSession; }
 export function markEvidenceBoundary(): number { return ++observationSequence; }
 export interface ExecutionSnapshot { fingerprints: Fingerprints; head: string; testDigest: string; implementationDigest: string; environmentDigest: string }
 export interface CaptureContext { runId: string; taskId: string; cycleId?: string; step: CommandEvidence['step']; commandPlanDigest: string }
-export function commandPlanDigest(commands: ValidationCommand[]): string { return sha256(stableStringify(commands)); }
+/** Return a digest of the single command definition used for this evidence record. */
+export function commandPlanDigest(command: ValidationCommand): string { return sha256(stableStringify(command)); }
 /** This is the only command-evidence producer. Reports and JSON imports are never trusted executions.
  * Snapshot adapter belongs to the application (Git/filesystem), not user-supplied evidence files.
  * A fresh process cannot authenticate old command records: recovery must rerun commands.
  */
-export async function captureCommandEvidence(root: string, command: ValidationCommand, context: CaptureContext, snapshot: () => Promise<ExecutionSnapshot>, options?: ExecuteOptions): Promise<CommandEvidence> {
+export async function captureCommandEvidence(root: string, command: ValidationCommand, context: Omit<CaptureContext, 'commandPlanDigest'>, snapshot: () => Promise<ExecutionSnapshot>, options?: ExecuteOptions): Promise<CommandEvidence> {
   const startedSequence = markEvidenceBoundary();
   const before = await snapshot();
   const result = await executeCommand(root, command, { maxOutputBytes: 64 * 1024, ...options });
@@ -26,7 +27,7 @@ export async function captureCommandEvidence(root: string, command: ValidationCo
     timedOut: result.timedOut, outputTruncated: result.stdoutTruncated || result.stderrTruncated,
     before: before.fingerprints, after: after.fingerprints, head: before.head, testDigest: before.testDigest,
     implementationDigest: before.implementationDigest, environmentDigest: before.environmentDigest,
-    outputDigest: sha256(result.stdoutSha256 + result.stderrSha256), output: { stdout: result.stdout, stderr: result.stderr },
+    commandPlanDigest: sha256(stableStringify(command)), outputDigest: sha256(result.stdoutSha256 + result.stderrSha256), output: { stdout: result.stdout, stderr: result.stderr },
   };
   assert(before.head === after.head && before.testDigest === after.testDigest && before.implementationDigest === after.implementationDigest && before.environmentDigest === after.environmentDigest, 'COMMAND_INPUT_CHANGED', '命令运行期间 HEAD、测试、实现或环境改变；结果不可接受', 3);
   observed.set(evidence.id, sha256(stableStringify(evidence)));

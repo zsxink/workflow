@@ -27,10 +27,11 @@ async function fixture(t: { after: (callback: () => Promise<void>) => void }) {
   const start = snapshot([file('src/change.ts', 'old'), file('src/deleted.ts', 'delete')]);
   const current = snapshot([file('src/added.ts', 'new'), file('src/change.ts', 'changed')]);
   const state = createWorkflowState('run-receipt', start.fingerprints);
-  const d: Dispatch = { id: 'dispatch-one', attemptId: 'attempt-one', taskId: 'TASK-001', scope: 'task', role: 'developer-verification', status: 'attached', agentId: 'fixture-native-agent', startHead: head, fingerprints: start.fingerprints, allowedPaths: ['src/**'], forbiddenPaths: [], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], evidenceBoundary: markEvidenceBoundary(), evidenceSessionId: currentEvidenceSession(), testMode: 'verification', taskPlan: { commandPlanDigest: commandPlanDigest([command]), testCommands: ['unit'], acceptance: '验证产物' } };
+  const commands = [command];
+  const d: Dispatch = { id: 'dispatch-one', attemptId: 'attempt-one', taskId: 'TASK-001', scope: 'task', role: 'developer-verification', status: 'attached', agentId: 'fixture-native-agent', startHead: head, fingerprints: start.fingerprints, allowedPaths: ['src/**'], forbiddenPaths: [], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], evidenceBoundary: markEvidenceBoundary(), evidenceSessionId: currentEvidenceSession(), testMode: 'verification', taskPlan: { commandPlanDigest: sha256(stableStringify(commands)), testCommands: ['unit'], acceptance: '验证产物' } };
   state.dispatches.push(d);
   const executionSnapshot = () => Promise.resolve({ head, fingerprints: current.fingerprints, testDigest: sha256('tests'), implementationDigest: current.fingerprints.source, environmentDigest: current.fingerprints.environment });
-  const evidence = await captureCommandEvidence(root, command, { runId: state.runId, taskId: 'TASK-001', step: 'verify', commandPlanDigest: commandPlanDigest([command]) }, executionSnapshot);
+  const evidence = await captureCommandEvidence(root, command, { runId: state.runId, taskId: 'TASK-001', step: 'verify' }, executionSnapshot);
   const report: DispatchReport = { protocolVersion: 1, runId: state.runId, dispatchId: d.id, attemptId: d.attemptId, status: 'DONE', taskIds: ['TASK-001'], files: ['src/added.ts', 'src/change.ts', 'src/deleted.ts'], evidenceIds: [evidence.id], requirementIds: d.requirementIds, scenarioIds: d.scenarioIds, startHead: head, question: null, next: '主会话接收' };
   d.report = report;
   const input = { state, dispatchId: d.id, attemptId: d.attemptId, start, current, commandEvidence: [evidence], commands: [command] };
@@ -124,7 +125,7 @@ test('Architect plan output reopens spec gate and retains completed history whil
   f.state.fingerprints = start.fingerprints;
   Object.assign(f.d, { scope: 'change', taskId: undefined, role: 'architect', testMode: undefined, taskPlan: undefined, fingerprints: start.fingerprints, allowedPaths: ['.workflow/changes/demo/tasks.md'] });
   Object.assign(f.report, { taskIds: [], files: ['.workflow/changes/demo/tasks.md'], evidenceIds: [`manifest-${sha256(stableStringify(current.manifests))}`] });
-  const baselineEvidence = await captureCommandEvidence(f.root, command, { runId: f.state.runId, taskId: 'TASK-002', step: 'baseline', commandPlanDigest: commandPlanDigest([command]) }, () => Promise.resolve({ head, fingerprints: start.fingerprints, testDigest: sha256('tests'), implementationDigest: start.fingerprints.source, environmentDigest: start.fingerprints.environment }));
+  const baselineEvidence = await captureCommandEvidence(f.root, command, { runId: f.state.runId, taskId: 'TASK-002', step: 'baseline' }, () => Promise.resolve({ head, fingerprints: start.fingerprints, testDigest: sha256('tests'), implementationDigest: start.fingerprints.source, environmentDigest: start.fingerprints.environment }));
   const baseline = createTestBaseline(f.state, 'TASK-002', [baselineEvidence], ['unit']);
   const opened = openTestCycle(f.state, { baseline, snapshot: { head, fingerprints: start.fingerprints, testDigest: baseline.testDigest, implementationDigest: baseline.implementationDigest, environmentDigest: baseline.environmentDigest }, scenarioIds: ['SCN-001'], testScopes: ['tests/**'], implementationScopes: ['src/**'] });
   const unfinished = opened.cycle;
@@ -147,7 +148,7 @@ test('command evidence from before this attempt and same-ID substituted commands
   assert(auditDispatchOutput(f.input).diagnostics.some(d => d.code === 'OUTPUT_EVIDENCE_BEFORE_ATTEMPT'));
   f.d.evidenceBoundary = 1;
   const wrong = { ...command, args: ['-e', ''] };
-  const evidence = await captureCommandEvidence(f.root, wrong, { runId: f.state.runId, taskId: 'TASK-001', step: 'verify', commandPlanDigest: commandPlanDigest([wrong]) }, f.executionSnapshot);
+  const evidence = await captureCommandEvidence(f.root, wrong, { runId: f.state.runId, taskId: 'TASK-001', step: 'verify' }, f.executionSnapshot);
   f.report.evidenceIds = [evidence.id];
   const audit = auditDispatchOutput({ ...f.input, commandEvidence: [evidence] });
   assert(audit.diagnostics.some(d => d.code === 'OUTPUT_COMMAND_DEFINITION'));
@@ -188,7 +189,7 @@ test('observed Red and Green receipts advance one cycle without erasing history 
   await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'tests'));
   await writeFile(path.join(root, 'src/ready'), 'old');
   const planned: ValidationCommand = { ...command, args: ['-e', "const fs=require('node:fs'); if(fs.existsSync('tests/need') && fs.readFileSync('src/ready','utf8')!=='ready') process.exitCode=1"] };
-  const plan = commandPlanDigest([planned]);
+  const plan = sha256(stableStringify([planned]));
   const observe = async () => {
     const implementation = await readFile(path.join(root, 'src/ready'), 'utf8');
     const test = await readFile(path.join(root, 'tests/need'), 'utf8').catch(() => '');
@@ -197,13 +198,13 @@ test('observed Red and Green receipts advance one cycle without erasing history 
   };
   const initial = await observe();
   let state = createWorkflowState('run-tdd-receipt', initial.current.fingerprints);
-  const base = await captureCommandEvidence(root, planned, { runId: state.runId, taskId: 'TASK-001', step: 'baseline', commandPlanDigest: plan }, async () => (await observe()).execution);
+  const base = await captureCommandEvidence(root, planned, { runId: state.runId, taskId: 'TASK-001', step: 'baseline' }, async () => (await observe()).execution);
   const opened = openTestCycle(state, { baseline: createTestBaseline(state, 'TASK-001', [base], ['unit']), snapshot: initial.execution, scenarioIds: ['SCN-001'], testScopes: ['tests/**'], implementationScopes: ['src/**'] });
   state = opened.state;
   const prepare = (role: 'developer-red' | 'developer-green', start: OutputSnapshot) => prepareDispatch(state, { role, taskId: 'TASK-001', cycleId: opened.cycle.id, testMode: 'tdd', taskPlan: { testCommands: ['unit'], commandPlanDigest: plan, acceptance: 'observed cycle' }, allowedPaths: role === 'developer-red' ? ['tests/**'] : ['tests/**', 'src/**'], requirementIds: ['REQ-001'], scenarioIds: ['SCN-001'], startHead: head, fingerprints: start.fingerprints });
   const redPrepared = prepare('developer-red', initial.current); state = redPrepared.state;
   await writeFile(path.join(root, 'tests/need'), 'behavior assertion');
-  const red = await captureCommandEvidence(root, planned, { runId: state.runId, taskId: 'TASK-001', cycleId: opened.cycle.id, step: 'red', commandPlanDigest: plan }, async () => (await observe()).execution);
+  const red = await captureCommandEvidence(root, planned, { runId: state.runId, taskId: 'TASK-001', cycleId: opened.cycle.id, step: 'red' }, async () => (await observe()).execution);
   state = recordTestStep(state, opened.cycle.id, 'red', [red]);
   const report = (id: string, evidenceId: string, files: string[]) => {
     const d = state.dispatches.find(d => d.id === id)!;
@@ -220,7 +221,7 @@ test('observed Red and Green receipts advance one cycle without erasing history 
   state = acceptRed(state, opened.cycle.id, { evidenceIds: [red.id], diagnostics: [{ commandEvidenceId: red.id, kind: 'business-assertion', scenarioIds: ['SCN-001'], assertion: 'requires ready state', sourceReference: 'tests/need' }], rationale: 'observed behavior missing', sourceReferences: ['tests/need'] }, redCurrent.execution);
   const greenPrepared = prepare('developer-green', redCurrent.current); state = greenPrepared.state;
   await writeFile(path.join(root, 'src/ready'), 'ready');
-  const green = await captureCommandEvidence(root, planned, { runId: state.runId, taskId: 'TASK-001', cycleId: opened.cycle.id, step: 'green', commandPlanDigest: plan }, async () => (await observe()).execution);
+  const green = await captureCommandEvidence(root, planned, { runId: state.runId, taskId: 'TASK-001', cycleId: opened.cycle.id, step: 'green' }, async () => (await observe()).execution);
   state = recordTestStep(state, opened.cycle.id, 'green', [green]);
   const greenDispatch = report(greenPrepared.dispatch.id, green.id, ['src/ready']);
   const current = await observe();
