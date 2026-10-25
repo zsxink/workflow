@@ -162,6 +162,8 @@ async function newPlan(root: string, operation: InstallPlan['operation'], option
         catch { baseBranch = await git(root, ['symbolic-ref', '--short', 'HEAD']); }
         await git(root, ['rev-parse', '--verify', `${baseBranch}^{commit}`]);
       } catch { diagnostics.push('无法从已有提交核实 baseBranch；实际 init 需要有提交的分支，且不猜测 main。'); }
+      // 默认模块范围是有意的项目根级占位：项目维护者必须先用真实目录替换，再声明构建产物——
+      // 项目根级范围无法证明与任何产物 glob 不相交。
       const config = { formatVersion: 1, project: { id: basename(root).toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'project', name: basename(root), authoritativeDocs: [], rules: '.workflow/rules.md' }, hosts: selected, modules: [{ id: 'project', paths: ['**'], role: 'developer' }], git: { baseBranch, branchPrefix: 'workflow/' }, integration: { profile: 'local', mode: 'prepare' }, tracking: { required: false, providers: [] }, validation: { extraSourceInputs: [], commands: [] }, policy: { retryLimit: 2, crRoundLimit: 3, epicConcurrency: 3, requireScopedWriteIsolation: false }, extensions: {} };
       for (const [path, content] of [['.workflow/config.yaml', yamlStringify(config)], ['.workflow/rules.md', renderTemplate(language, 'project-rules')]] as const) {
         if (await bytes(root, path) === null) await add(path, Buffer.from(content).toString('base64'), 'added');

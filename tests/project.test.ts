@@ -54,6 +54,24 @@ test('strict unknown/version/duplicate/YAML/command and artifact validation', as
   }
 });
 
+test('artifact scopes need a disjoint fixed prefix; a whole-project module scope is rejected, not silently pruned', async t => {
+  const root = await fixture(t);
+  const file = path.join(root,'.workflow/config.yaml');
+  const original = await readFile(file,'utf8');
+  // A whole-project module scope (either literal `.` or project-rooted `**`) cannot be
+  // proven disjoint from a build artifact, so declaring artifacts must fail closed
+  // instead of letting a build whitelist mask source writes.
+  for (const scope of ['"."','"**"']) {
+    await writeFile(file, original.replace('paths: [src/**, tests/**]',`paths: [${scope}]`));
+    await assert.rejects(loadConfig(root), { code: 'CONFIG_ARTIFACT_SOURCE_OVERLAP' });
+  }
+  // A bounded module scope proves disjointness by its literal prefix.
+  await writeFile(file, original.replace('paths: [src/**, tests/**]','paths: [src/**]'));
+  const accepted = await loadConfig(root);
+  assert.deepEqual(accepted.modules.map(m => m.paths), [['src/**'], ['docs/**']]);
+  assert.deepEqual(accepted.validation.commands.map(c => c.artifacts), [['coverage/**'], ['coverage/**'], ['dist/**']]);
+});
+
 test('relative paths reject POSIX/Windows escapes, Git metadata, and symlinks outside root', async t => {
   const root = await fixture(t);
   const outside = await mkdtemp(path.join(os.tmpdir(),'workflow-outside-'));

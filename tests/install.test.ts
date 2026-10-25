@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { planInit, initProject, planUpgrade, planUninstall, applyInstallPlan, doctor, replayInstallOperation, uninstallProject } from '../src/installer/index.js';
 import { CAPABILITIES } from '../src/hosts/index.js';
+import { loadConfig } from '../src/project/index.js';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'workflow-install-'));
@@ -35,6 +36,26 @@ test('init plans first, installs exact runtime and verified bases, keeps host ex
     const again = await planInit(f.root, { runtimePath: f.runtimePath }); assert.equal(again.applicable, true); assert.equal(again.changes.every(c => ['unchanged', 'preserved'].includes(c.status)), true);
   } finally { await f.dispose(); }
 });
+test('a generated draft config keeps a project-rooted module so artifacts are only accepted once real scopes are declared', async () => {
+  const f = await fixture(); try {
+    await install(f.root, f.runtimePath, 'artifact-draft');
+    const draft = await readFile(join(f.root, '.workflow/config.yaml'), 'utf8');
+    // The draft module is project-rooted: it cannot be proven disjoint from a build
+    // artifact, so an artifacts declaration must fail closed rather than guess.
+    assert.match(draft, /paths:\s*\n\s*- "\*\*"/);
+    await mkdir(join(f.root, 'dist'), { recursive: true });
+    await writeFile(join(f.root, 'dist', 'bundle.js'), 'build output\n');
+    const rootOnly = draft.replace('commands: []', "commands:\n    - id: build\n      executable: node\n      args: ['-e', '1']\n      cwd: .\n      timeoutSeconds: 10\n      modules: ['*']\n      artifacts: ['dist/**']");
+    await writeFile(join(f.root, '.workflow/config.yaml'), rootOnly);
+    await assert.rejects(loadConfig(f.root), { code: 'CONFIG_ARTIFACT_SOURCE_OVERLAP' });
+    // Once the project declares real directories, the same artifacts are accepted.
+    await writeFile(join(f.root, '.workflow/config.yaml'), rootOnly.replace('      - "**"', '      - "src/**"\n      - "README.md"'));
+    const config = await loadConfig(f.root);
+    assert.deepEqual(config.modules.map(m => m.paths), [['src/**', 'README.md']]);
+    assert.deepEqual(config.validation.commands.map(c => c.artifacts), [['dist/**']]);
+  } finally { await f.dispose(); }
+});
+
 test('doctor consumes fresh host evidence without claiming the preview lifecycle is ready', async () => {
   const f = await fixture(); try {
     await install(f.root, f.runtimePath);

@@ -95,24 +95,31 @@ export async function resolveProjectPath(root: string, projectPath: string): Pro
   }
   return resolved;
 }
-function globPrefix(glob: string): string {
+/** Longest literal (glob-free) leading directory of a pattern, or undefined when the
+ * first component is itself a glob (project-rooted patterns). Such a pattern cannot
+ * prove a disjoint fixed prefix, so callers must not treat it as an excluded directory. */
+function globPrefix(glob: string): string | undefined {
   const parts = relative(glob, true).split('/');
   const first = parts.findIndex(part => /[*?\[\]{}()!+@]/.test(part));
-  return (first < 0 ? parts : parts.slice(0, first)).join('/');
+  const prefix = (first < 0 ? parts : parts.slice(0, first)).join('/');
+  return prefix === '' || prefix === '.' ? undefined : prefix;
 }
 async function validateGlob(root: string, glob: string): Promise<void> {
   relative(glob, true);
-  await resolveProjectPath(root, globPrefix(glob) || '.');
+  await resolveProjectPath(root, globPrefix(glob) ?? '.');
 }
 export function pathMatches(projectPath: string, scopes: readonly string[]): boolean {
   const normalized = relative(projectPath);
   return scopes.some(scope => picomatch(relative(scope, true), { dot: true })(normalized));
 }
-// A whitelist is accepted only when its fixed prefix proves it disjoint from sources.
-// For broad glob expressions we deliberately fail closed instead of guessing disjointness.
-function mayIntersect(a: string, b: string): boolean {
-  const pa = globPrefix(a), pb = globPrefix(b);
-  return pa === pb || pa === '' || pb === '' || pa.startsWith(`${pb}/`) || pb.startsWith(`${pa}/`);
+/** A whitelist is accepted only when its fixed prefix proves it disjoint from sources.
+ * `artifact` is the build-output pattern; `source` is a declared module scope. A pattern
+ * without a literal prefix (project-rooted) cannot prove disjointness: it fails closed
+ * rather than guessing. The caller rejects whole-project artifacts separately. */
+function mayIntersect(artifact: string, source: string): boolean {
+  const pa = globPrefix(artifact), pb = globPrefix(source);
+  if (pa === undefined || pb === undefined) return true;
+  return pa === pb || pa.startsWith(`${pb}/`) || pb.startsWith(`${pa}/`);
 }
 function assertCommand(command: Pick<ValidationCommand, 'executable' | 'args'>): void {
   assert(Array.isArray(command.args) && command.args.every(a => typeof a === 'string' && !a.includes('\0')), 'CONFIG_INVALID', '命令 args 必须是字符串数组');
@@ -202,8 +209,8 @@ export async function loadConfig(root: string): Promise<ProjectConfig> {
     if (command.executable.includes('/') || command.executable.includes('\\')) await resolveProjectPath(root,command.executable);
     for (const glob of command.artifacts) {
       await validateGlob(root,glob);
-      assert(globPrefix(glob) !== '' && glob !== '.', 'CONFIG_INVALID','产物范围不能覆盖整个项目');
-      assert(!sources.some(source => mayIntersect(source,glob)), 'CONFIG_ARTIFACT_SOURCE_OVERLAP', `产物范围无法证明与源码分离: ${glob}`);
+      assert(globPrefix(glob) !== undefined, 'CONFIG_INVALID','产物范围不能覆盖整个项目');
+      assert(!sources.some(source => mayIntersect(glob,source)), 'CONFIG_ARTIFACT_SOURCE_OVERLAP', `产物范围无法证明与源码分离: ${glob}`);
     }
   }
   return config;
