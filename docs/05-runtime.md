@@ -29,7 +29,7 @@
 
 所有路径相对仓库根，分隔符规范化，UTF-8 字节排序，记录类型及 SHA-256。符号链接只哈希链接目标文本，拒绝通过链接访问项目外文件。大小写碰撞在跨平台校验时报错。
 
-source manifest 从工作树实际文件系统枚举，只使用仓库边界内实际存在的 .gitignore 规则及项目明确声明的构建产物排除；规则文件按固定路径/层级读取并纳入 policyFingerprint，不按 tracked/index 状态选择，新增规则在 stage 前后保持一致；禁用用户全局 core.excludesFile 和 .git/info/exclude 等本机排除规则，不能直接使用继承本机配置的 `git check-ignore --no-index` 结果；Git 元数据、其他 worktree 和 `.workflow/` 中已由其他指纹覆盖的数据不重复纳入。额外必须覆盖的 ignored 文件由 validation.extraSourceInputs 声明；已跟踪但被忽略且未归属其他指纹/产物的文件，配置检查拒绝漏采并要求声明。Git index 仅用于审计，不决定 manifest 路径集合。删除表现为原 manifest 条目消失，删除证据另记源码差异 tombstone（不等同规格历史索引）；相同磁盘内容在 stage/commit 前后必须得到相同 sourceFingerprint。不能按任一路径分量叫 dist/target 就自动排除，避免漏掉真实源目录。
+source manifest 从工作树实际文件系统枚举，只使用仓库边界内实际存在的 .gitignore 规则及项目明确声明的构建产物排除；规则文件按固定路径/层级读取并纳入 policyFingerprint，不按 tracked/index 状态选择，新增规则在 stage 前后保持一致；禁用用户全局 core.excludesFile 和 .git/info/exclude 等本机排除规则，不能直接使用继承本机配置的 `git check-ignore --no-index` 结果；Git 元数据、其他 worktree 和 `.workflow/` 中已由其他指纹覆盖的数据不重复纳入。额外必须覆盖的 ignored 文件由 validation.extraSourceInputs 声明；已跟踪但被忽略且未归属其他指纹/产物的文件，配置检查拒绝漏采并要求声明。Git index 仅用于审计，不决定 manifest 路径集合。删除表现为原 manifest 条目消失，删除证据另记源码差异 tombstone（不等同规格历史索引）；相同磁盘内容在 stage/commit 前后必须得到相同 sourceFingerprint。不能按任一路径分量叫 dist/target 就自动排除，避免漏掉真实源目录。产物排除与模块范围的相交判定与配置校验一致：两侧都需有字面前缀才能证明不相交，项目根级模块范围（如 `paths: ['**']`）与任何产物 glob 都按相交处理并拒绝，防止构建白名单掩盖源码写入。
 
 spec/plan 归一化只允许忽略任务复选框和展示时间；审批内容、场景、命令参数、路径与约束不能被归一化掉。规格归档的路径变化通过事务记录的 before/after specFingerprint 映射解释，不能泛化为“规格改了也可复用验证”。
 
@@ -37,7 +37,7 @@ spec/plan 归一化只允许忽略任务复选框和展示时间；审批内容�
 
 指纹说明变化，不能单独说明变化原因。授权步骤的产物接收必须另核对 attempt、路径差异与步骤时序，再推进当前基线；未知漂移才按保守恢复矩阵处理。历史步骤证据保留为当时事实，不自动转成新快照的当前通过证据。`invalidateForInputs` 保守失效全部 cycle；合法步骤使用独立的产物审计/接收领域逻辑，保留完成历史，并更新当前指纹及受影响门禁。完整组合仍需当前输入的最终验证，不能逐项累加历史通过来推断。
 
-dispatchPreparation 保存起始 HEAD/index、完整 manifests、指纹和派发证据序列边界；缺少完整起始快照的旧派发不能用当前文件补造。领域接收将输入/输出指纹、manifest 证据 ID、文件清单、命令引用及失效阶段写入 dispatch.outputReceipt。应用层只读 audit 从真实 Git/文件系统重新采样并核对期间 run/输入稳定性，不提供自写成功 JSON 的导入或应用入口；宿主作者/授权来源未验收前不持久化成功收据。
+dispatchPreparation 保存起始 HEAD/index、完整 manifests、指纹和派发证据序列边界；缺少完整起始快照的旧派发不能用当前文件补造。单次 attempt 的输入权威是该次准备回执与其 `dispatch.fingerprints`；workflow 级基线指纹只在已有被接收产物推进过它之后才具备权威性，否则仍是首次派发的 bootstrap 快照，不得否决后续在合法变化输入上准备的 attempt。领域接收将输入/输出指纹、manifest 证据 ID、文件清单、命令引用及失效阶段写入 dispatch.outputReceipt。应用层只读 audit 从真实 Git/文件系统重新采样并核对期间 run/输入稳定性，不提供自写成功 JSON 的导入或应用入口；宿主作者/授权来源未验收前不持久化成功收据。
 
 ## 4. 证据最小字段
 

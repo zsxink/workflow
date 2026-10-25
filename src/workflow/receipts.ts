@@ -102,7 +102,12 @@ export function auditDispatchOutput(input: OutputAuditInput): OutputAudit {
   const changes = startValid && currentValid ? outputManifestChanges(input.start!.manifests, input.current.manifests) : [];
   const changedInputs = input.start ? inputs.filter(key => input.start!.fingerprints[key] !== input.current.fingerprints[key]) : [];
   if (d && input.start) {
-    if (input.start.head !== d.startHead || !same(input.start.fingerprints, d.fingerprints) || input.state.fingerprints !== undefined && !same(input.state.fingerprints, d.fingerprints)) error('OUTPUT_BASELINE_STALE', '起始 manifest 或当前 workflow 指纹不属于派发输入');
+    // The preparation checkpoint is the authority for one attempt. The workflow-level
+    // baseline only becomes authoritative after an accepted output advances it; until
+    // then it is the bootstrap snapshot from the first preparation and must not veto a
+    // later attempt that was legitimately prepared on a changed input.
+    const baselineAccepted = input.state.dispatches.some(value => value.outputReceipt !== undefined);
+    if (input.start.head !== d.startHead || !same(input.start.fingerprints, d.fingerprints) || baselineAccepted && !same(input.state.fingerprints, d.fingerprints)) error('OUTPUT_BASELINE_STALE', '起始 manifest 或当前 workflow 指纹不属于派发输入');
     if (input.current.head !== input.start.head) error('OUTPUT_HEAD_CHANGED', '产物期间 HEAD 改变，不能按原 attempt 接收');
     if (input.current.indexDigest !== input.start.indexDigest) error('OUTPUT_INDEX_CHANGED', '产物期间 Git index 改变，不能按原 attempt 接收');
     if (changedInputs.some(key => key === 'spec' || key === 'policy' || key === 'environment' || key === 'plan' && d.role !== 'architect')) error('OUTPUT_PROTECTED_INPUT_CHANGED', '规格、计划、策略或环境变化必须重新走相关门禁，不能以合法产物豁免');

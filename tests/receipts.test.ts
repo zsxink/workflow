@@ -238,6 +238,29 @@ test('observed Red and Green receipts advance one cycle without erasing history 
 });
 
 
+test('a later attempt prepared on changed input is not vetoed by the bootstrap workflow baseline', async t => {
+  const f = await fixture(t);
+  // The workflow baseline is still the bootstrap snapshot from the first preparation,
+  // while this attempt was legitimately prepared on newer input.
+  f.state.fingerprints = f.start.fingerprints;
+  f.d.fingerprints = f.current.fingerprints;
+  const audit = auditDispatchOutput({ ...f.input, start: f.current });
+  assert(!audit.diagnostics.some(value => value.code === 'OUTPUT_BASELINE_STALE'), JSON.stringify(audit.diagnostics));
+});
+
+test('an accepted output makes the advanced workflow baseline authoritative for later attempts', async t => {
+  const f = await fixture(t);
+  f.state.fingerprints = f.start.fingerprints;
+  const accepted = applyAcceptedOutput(f.state, auditDispatchOutput(f.input), f.current);
+  assert.deepEqual(accepted.fingerprints, f.current.fingerprints);
+  // Re-dispatching on the original baseline must now be rejected: the workflow has moved on.
+  accepted.dispatches.push({ ...structuredClone(f.d), id: 'dispatch-two', attemptId: 'attempt-two', fingerprints: f.start.fingerprints, status: 'attached', outputReceipt: undefined });
+  f.report.dispatchId = 'dispatch-two'; f.report.attemptId = 'attempt-two';
+  accepted.dispatches[1]!.report = f.report;
+  const stale = auditDispatchOutput({ state: accepted, dispatchId: 'dispatch-two', attemptId: 'attempt-two', start: f.start, current: f.current, commandEvidence: [f.evidence], commands: [command] });
+  assert(stale.diagnostics.some(value => value.code === 'OUTPUT_BASELINE_STALE'));
+});
+
 test('output receipts cannot replace independent review or verification gates', async t => {
   const f = await fixture(t);
   for (const role of ['reviewer', 'verifier'] as const) {

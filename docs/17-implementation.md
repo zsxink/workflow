@@ -103,3 +103,19 @@ node /path/to/git-project/.workflow/runtime/workflow.js sync demo --project /pat
 本轮仅修改文档与安装模板，不新增机器字段、CLI 或运行时实现。Epic 就绪计算、恢复与调度仍为 M6 待实施；两参考仓库只读调研，未运行其流程或修改文件。未完成的宿主、授权、事务与集成验收继续保持未完成。
 
 实际验证：先运行 `npm run check`，类型检查、构建及全部 130 项测试通过（0 失败/跳过）；独立审查发现跨 change 依赖仅写设计正文的模板遗漏，修正后定向复核无剩余确定性问题。最终模板重新构建，并运行 CLI/安装专项 17 项全部通过（0 失败/跳过），包含双语生成、升级保护及打包离线安装；最终模板调整后未再次运行全量测试。另检查 22 份 Markdown 的 136 个本地链接目标及 `git diff --check`。这些检查不构成真实宿主或 Epic 闭环验收。保留工作区既有修改，未操作本项目 Git index/HEAD 或发布。
+
+## 基线指纹比对修复（2026-10-25）
+
+修复 TODO #2：`workflow/receipts.ts` 的 `OUTPUT_BASELINE_STALE` 原先把 `state.fingerprints` 当作恒真基准，而该值在当前阶段只有首次派发的 `??=` 一个写入点——`applyAcceptedOutput` 与 `invalidateForInputs` 虽会推进它，但应用层按设计 fail-closed，均无调用者。结果是输入合法变化后，后续角色的 `dispatch prepare`/`audit` 必然误报基线陈旧。
+
+现比对基准为：准备回执与 `dispatch.fingerprints` 始终校验；workflow 级指纹仅在已有任一 `outputReceipt`（基线确经接收推进）时参与，否则不否决后续合法 attempt。`docs/05-runtime.md` §3 同步该契约。持久化接收路径（同步刷新 `run.fingerprints`）仍受宿主来源验收阻塞，未开放。
+
+本轮验证：`npm run check` 的严格类型检查、单文件构建与全部 **132 项测试通过**（0 失败/0 跳过）。新增两项回归：bootstrap 基线不否决后续合法 attempt；已接收产物推进基线后，按旧基线派发的 attempt 仍被判 `OUTPUT_BASELINE_STALE`。第一项已在修复前代码上确认失败。同时修正 `tests/workflow.test.ts` 遗留的 `commandPlanDigest` 数组调用（commit 32e60c0 改签名后未同步，导致 typecheck 失败）。未操作本项目 Git index/HEAD 或外部发布；本轮不改变真实宿主、持久化接收与集成验收状态。
+
+## 产物/源码范围相交判定修复（2026-10-25）
+
+修复 TODO #3。原 `globPrefix` 把项目根级模式（`**`、`.`）归一成空字符串，`mayIntersect` 再按“空前缀即相交”判定，导致两个后果：安装默认模块 `paths: ['**']` 使任何 `artifacts` 声明必然 `CONFIG_ARTIFACT_SOURCE_OVERLAP`；模块 `paths: ['.']`（同为整个项目）反被判为不相交，构建白名单可掩盖源码写入。
+
+现 `globPrefix` 对项目根级模式返回 `undefined`，不再产出空前缀；`mayIntersect(artifact, source)` 任一侧无字面前缀即判相交并 fail closed。安装默认模块仍为 `paths: ['**']` 占位，不虚构项目目录结构；`docs/06-configuration.md` §4 与 `docs/05-runtime.md` §3 明确“两侧都需有字面前缀才能证明不相交”，要求项目先用真实目录替换再声明产物。
+
+本轮验证：`npm run check` 的严格类型检查、单文件构建与全部 **134 项测试通过**（0 失败/0 跳过）。新增两项回归：`tests/project.test.ts` 验证 `['.']` 与 `['**']` 均被拒绝、有界范围仍通过（已确认在修复前代码上失败）；`tests/install.test.ts` 验证安装草案声明产物被拒、替换真实目录后 `loadConfig` 与 `captureFingerprints` 均通过且 `dist/` 被排除。未操作本项目 Git index/HEAD 或外部发布；本轮不改变真实宿主、持久化接收与集成验收状态。

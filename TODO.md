@@ -9,15 +9,20 @@
 
 ## 高严重度（阻断正确性/防伪）
 
-- [ ] #2 `state.fingerprints` 永不刷新
+- [x] #2 `state.fingerprints` 永不刷新
   - 位置：`runtime/state.ts:24` 初始化，`application/dispatch.ts:51` 仅 `??=` 一次；`workflow/receipts.ts:105` 校验起始快照与之比对。
   - 触发：Architect 完成 → 规格变更 → Developer-red 准备派发 → audit 判定 `OUTPUT_BASELINE_STALE`/`INPUT_CHANGED`，后续角色无法继续。
-  - 修复方向：产物接收（`applyAcceptedOutput`，`workflow/receipts.ts:170`）已更新 workflow 指纹，需打通持久化接收路径同步刷新 run 级 fingerprints；或明确比对基准只信 dispatch.fingerprints。
+  - 根因：`state.fingerprints` 有两个刷新点（`applyAcceptedOutput`、`invalidateForInputs`），但应用层按设计 fail-closed，均无调用者。它不是"忘记刷新"，而是把当前阶段永不推进的派生视图当成硬门禁基准。
+  - 已修：`workflow/receipts.ts:105` 比对基准改为「准备回执 + dispatch.fingerprints 恒校验；workflow 级指纹仅在已有任一 `outputReceipt`（即基线确被合法推进）时参与」。`application/dispatch.ts` 的 `??=` 语义本身正确（不覆盖已推进基线），保留。回归见 `tests/receipts.test.ts` 两项：bootstrap 基线不否决后续合法 attempt；已接收产物后旧基线派发仍被拒绝。
+  - 遗留：持久化接收路径（同步刷新 `run.fingerprints`）仍受宿主来源验收阻塞，未开放。
 
-- [ ] #3 默认配置使验证命令全量失败
+- [x] #3 默认配置使验证命令全量失败
   - 位置：`project/index.ts:206` `globPrefix('**')` 解析为空字符串，`mayIntersect('','')` 返回 true → `CONFIG_ARTIFACT_SOURCE_OVERLAP`；`installer/index.ts:165` 默认模块 `paths: ['**']`。
   - 触发：安装后项目一旦声明 `validation.commands[].artifacts`，loadConfig 抛错；`captureFingerprints` 永远无法排除构建产物，任何写文件命令触发 `COMMAND_INPUT_CHANGED`。
-  - 修复方向：`globPrefix` 对 `**` 返回 undefined（不加前缀），空/缺失前缀不参与交集判断；增加默认模板带 artifacts 的回归。
+  - 根因：`globPrefix` 把项目根级模式（`**`、`.`）归一成空字符串，`mayIntersect` 再按“空前缀即相交”处理。真正的漏洞在**源码侧**：模块 `paths: ['.']` 或 `['**']` 与任意产物 glob 被判相交（正确），但 `['.']` 曾被漏判为不相交，使构建白名单能掩盖源码写入。
+  - 已修：`globPrefix` 对项目根级模式返回 `undefined`（不再产出空前缀）；`mayIntersect` 参数改为 `(artifact, source)`，任一侧无字面前缀即判相交并 fail closed。`docs/06-configuration.md` §4 与 `docs/05-runtime.md` §3 同步该判定契约。
+  - 安装默认模块保持 `paths: ['**']` 作为占位（未虚构项目目录结构），文档明确要求先用真实目录替换再声明产物。
+  - 回归：`tests/project.test.ts` 一项（`['.']` 与 `['**']` 均被 `CONFIG_ARTIFACT_SOURCE_OVERLAP` 拒绝，有界范围仍通过），`tests/install.test.ts` 一项（安装草案 → 声明产物被拒 → 替换真实目录后 loadConfig 与 `captureFingerprints` 均通过）。前者已确认在修复前代码上失败。
 
 - [ ] #5 自报 host-evidence 控制执行就绪态
   - 位置：`hosts/evidence.ts` 解析 `.workflow/host-evidence.json` 后直接设置 `executionReady`/`roleIsolationVerified`/`nativeDispatchVerified`；references 从不验证存在性，capabilities 全凭自报。

@@ -49,6 +49,8 @@ export async function prepareRunDispatch(project: string, changeId: string, runI
     assert(stableStringify((await captureFingerprints(project, { runtime: credentials.runtime }))) === stableStringify(capture), 'DISPATCH_INPUT_CHANGED', 'Inputs changed while preparing task packet', 3);
     assert((await git(project, ['rev-parse', '--verify', 'HEAD'])).trim() === head && sha256(await git(project, ['ls-files', '--stage', '-z'])) === indexDigest, 'DISPATCH_GIT_CHANGED', 'HEAD/index changed while preparing task packet', 3);
     const current = workflow(draft);
+    // Seed the workflow baseline only on first preparation; an advanced baseline from an
+    // accepted output must survive later preparations.
     current.fingerprints ??= structuredClone(fingerprints);
     const cycleId = input.role === 'developer-red' || input.role === 'developer-green' ? current.cycles.find(cycle => cycle.taskId === task!.id && cycle.status !== 'complete' && cycle.status !== 'invalidated')?.id : undefined;
     const prepared = prepareDispatch(current, { ...(task ? { taskId: task.id, testMode: task.testMode, taskPlan } : {}), role: input.role, allowedPaths, requirementIds, scenarioIds, fingerprints, startHead: head, cycleId });
