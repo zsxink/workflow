@@ -70,7 +70,7 @@ async function fixture() {
   await writeFile(path.join(root, 'implementation.mjs'), 'export const value = 1;\n');
   await writeFile(path.join(root, 'behavior.mjs'), "import assert from 'node:assert/strict'; import {value} from './implementation.mjs'; assert.equal(value, 1);\n");
   const command: ValidationCommand = { id: 'unit', executable: 'node', args: ['behavior.mjs'], cwd: '.', timeoutSeconds: 5, modules: ['*'], artifacts: [], envAllowlist: ['PATH'] };
-  const digest = commandPlanDigest([command]);
+  const digest = commandPlanDigest(command);
   const snapshot = async (): Promise<ExecutionSnapshot> => {
     const implementationDigest = sha256(await readFile(path.join(root, 'implementation.mjs'))); const testDigest = sha256(await readFile(path.join(root, 'behavior.mjs')));
     return { fingerprints: { ...fp, source: sha256(implementationDigest + testDigest) }, head, implementationDigest, testDigest, environmentDigest: fp.environment };
